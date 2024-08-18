@@ -1,12 +1,14 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>br.ufs.dcomp.ExemploProtocolBuffers</groupId>
-  <artifactId>ExemploProtocolBuffers</artifactId>
-  <packaging>jar</packaging>
-  <version>1.0</version>
-  <name>ExemploProtocolBuffers</name>
-  <url>http://maven.apache.org</url>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>main</groupId>
+    <artifactId>EvertonChat</artifactId>
+    <name>EvertonChat</name>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <url>http://maven.apache.org</url>
+
 
   <build>
     <plugins>
@@ -16,7 +18,7 @@
           <archive>
             <manifest>
               <mainClass>
-                br.ufs.dcomp.ExemploProtocolBuffers.ExemploSerializacao
+                ChatClient
               </mainClass>
             </manifest>
           </archive>
@@ -27,29 +29,58 @@
       </plugin>
     </plugins>
   </build>
-
-  <properties>
-    <protobuf.version>3.11.1</protobuf.version>
+    
+   <properties>
+    <protobuf.version>3.15.8</protobuf.version>
     <maven.compiler.source>11</maven.compiler.source>
     <maven.compiler.target>11</maven.compiler.target>
   </properties>
-  <dependencies>
 
-    <dependency>
-      <groupId>junit</groupId>
-      <artifactId>junit</artifactId>
-      <version>3.8.1</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>3.11.1</version>
-    </dependency>
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java-util</artifactId>
-      <version>3.11.1</version>
-    </dependency>
-  </dependencies>
+
+    <dependencies>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.12.0</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+            <version>3.26.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.11.1</version>
+        </dependency>
+        
+        <dependency>
+            <artifactId>protobuf-java-util</artifactId>
+            <groupId>com.google.protobuf</groupId>
+            <version>3.11.1</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>com.rabbitmq</groupId>
+            <artifactId>amqp-client</artifactId>
+            <version>5.12.0</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.30</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.30</version>
+        </dependency>
+
+    </dependencies>
+
 </project>
+
