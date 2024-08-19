@@ -39,8 +39,8 @@ public class ChatClient {
     private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static String currentHost = RABBITMQ_HOST;
-    private static final String[] HOSTS = { "localhost", RABBITMQ_HOST };
-    // private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
+    // private static final String[] HOSTS = { "localhost", RABBITMQ_HOST };
+    private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static final int CONNECTION_TIMEOUT = 5000;
 
     public static void clearTerminal() {
