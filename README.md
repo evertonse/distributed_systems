@@ -102,5 +102,3 @@ Agora segue um exemplo de três mensagens recebidas de joaosantos:
 @marciocosta>> 
 ```
 
-------------------------------------------------------------------------------------------
-# Etapa 2

@@ -8,6 +8,5 @@
 .trails
 old/
 rabbitmq.md
-src/main/java/ChatClient.java
 ssh-code/
 target/
