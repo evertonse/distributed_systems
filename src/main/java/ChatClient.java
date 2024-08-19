@@ -6,6 +6,7 @@ import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 // import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,10 +36,11 @@ public class ChatClient {
     private static String username;
     private static String prompt;
     private static int cursorPosition = 0;
+    private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static String currentHost = RABBITMQ_HOST;
-    // private static final String[] HOSTS = { "localhost", RABBITMQ_HOST };
-    private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
+    private static final String[] HOSTS = { "localhost", RABBITMQ_HOST };
+    // private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static final int CONNECTION_TIMEOUT = 5000;
 
     public static void clearTerminal() {
@@ -162,18 +164,20 @@ public class ChatClient {
                 // AWS
                 //
                 // updateTerminalSizeThread.start();
-                String message = readLine();
-                if (message != null && message.startsWith("@")) {
-                    recipient = message.substring(1);
+                String text = readLine();
+
+                if (text != null && text.startsWith("@")) {
+                    recipient = text.substring(1);
                 } else {
                     if (recipient != null) {
-                        channel.basicPublish("", recipient, null, message.getBytes(StandardCharsets.UTF_8));
+                        // Serialize the Message object to bytes
+                        MessageData msg = new MessageData(username, text);
+                        channel.basicPublish("", recipient, null, msg.toBytes());
                     }
                 }
             }
             receiveThread.interrupt();
         } catch (IOException | InterruptedException | TimeoutException e) {
-            // Stop the loading animation if an exception occurs
             System.out.println("\rFailed to connect: " + e.getMessage());
         } finally {
             restoreTerminal();
@@ -319,16 +323,16 @@ public class ChatClient {
                 }
             } else if (c >= 32 && c < 127) { // Printable ASCII characters
                 editable_prompt_buffer.insert(cursorPosition++, c);
-                if (cursorPosition == editable_prompt_buffer.length()) {
-                    System.out.print(c);
-                } else {
-
-                    System.out.print(SAVE_CURSOR);
-                    System.out.print("\033[K"); // Clear the line from the cursor to the end
-                    // System.out.print(editable_prompt_buffer.substring(cursorPosition - 1));
-                    System.out.print(RESTORE_CURSOR); // Clear the line from the cursor to the
-                    System.out.print(MOVE_RIGHT); // Move cursor right
-                }
+                // if (cursorPosition == editable_prompt_buffer.length()) {
+                // System.out.print(c);
+                // } else {
+                //
+                // System.out.print(SAVE_CURSOR);
+                // System.out.print("\033[K"); // Clear the line from the cursor to the end
+                // // System.out.print(editable_prompt_buffer.substring(cursorPosition - 1));
+                // System.out.print(RESTORE_CURSOR); // Clear the line from the cursor to the
+                // System.out.print(MOVE_RIGHT); // Move cursor right
+                // }
             } else if (c == 23) { // Ctrl+W
                 deleteWord();
             } else if (c == 3) { // Ctrl+C
@@ -511,7 +515,6 @@ public class ChatClient {
         String size = stty("size");
         String[] dimensions = size.split(" ");
         return new int[] { Integer.parseInt(dimensions[0]), Integer.parseInt(dimensions[1]) }; // [1] is the number of
-                                                                                               // columns
     }
 
     // Function to move the cursor to the last row
@@ -527,14 +530,28 @@ public class ChatClient {
     }
 
     private static void receiveMessages() {
-
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             updateNlines();
-            String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-            if (message == null || message == "" || message == " ") {
+            byte[] messageDataBytes = delivery.getBody();
+            Map<String, Object> headers = delivery.getProperties().getHeaders();
+
+            String correlationId = delivery.getProperties().getCorrelationId();
+            String contentType = delivery.getProperties().getContentType();
+            String routingKey = delivery.getEnvelope().getRoutingKey();
+
+            String sender = "[unkown sender]";
+            String msgText = "[unkown message]";
+            // Deserialize the Message object
+            MessageData msgdata;
+            try {
+                msgdata = MessageData.fromBytes(messageDataBytes);
+                msgText = msgdata.getMessageBody();
+                sender = msgdata.getSender();
+            } catch (IOException | ClassNotFoundException e) {
+                System.err.println("Failed to deserialize message: " + e.getMessage());
                 return;
             }
-            String sender = delivery.getEnvelope().getRoutingKey();
+
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm"));
 
             StringBuilder sb = new StringBuilder();
@@ -543,15 +560,10 @@ public class ChatClient {
             clearPrompt(sb);
             sb.append("\033[G" + "\033[K");
             if (!debug) {
-                sb.append(String.format("(%s) %s diz: %s\n", timestamp, sender, message));
+                sb.append(String.format("(%s) %s diz: %s\n", timestamp, sender, msgText));
             } else {
-                sb.append(String.format("%s nlines=%d|maxNlines=%d\n",
-                        message,
-                        nlines, maxNlines));
-                // System.out.printf("\r(%s) %s diz: %s nlines=%d(cursorPosition=%d)(len=%d)",
-                // timestamp, sender,
-                // message,
-                // nlines, cursorPosition, editable_prompt_buffer.length());
+                sb.append(String.format("correlationId(%s), contentType(%s) routingKey(%s), sender(%s)\n",
+                        correlationId, contentType, routingKey, sender));
             }
 
             for (int i = 0; i < maxNlines; i++) {
