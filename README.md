@@ -1,3 +1,10 @@
+## Compilação do projeto e rodar
+
+```
+make run
+
+```
+
 ### ProtocolBufferersExample
 
 - Instalação do compilador protoc
@@ -10,13 +17,6 @@ sudo apt install protobuf-compiler
 
 ```
 protoc --java_out=src/main/java/ src/main/proto/aluno.proto
-```
-
-## Compilação do projeto e rodar
-
-```
-make run
-
 ```
 
 # ChatRabbitMQ
