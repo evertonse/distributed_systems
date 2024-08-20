@@ -1,10 +1,8 @@
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 import java.io.InputStreamReader;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
@@ -20,6 +18,7 @@ public class ChatClient {
     private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
     private static final String USERNAME = "admin";
     private static final String PASSWORD = "password";
+    private static final boolean DEBUG = true;
 
     private static boolean chat_client_running = false;
 
@@ -34,12 +33,13 @@ public class ChatClient {
 
     private static Channel channel;
     private static String username;
+    private static String recipient;
+    private static String group;
     private static String prompt;
     private static int cursorPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static String currentHost = RABBITMQ_HOST;
-    // private static final String[] HOSTS = { "localhost", RABBITMQ_HOST };
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static final int CONNECTION_TIMEOUT = 5000;
 
@@ -71,6 +71,60 @@ public class ChatClient {
         });
     }
 
+    private static void handleCommand(String command) throws IOException {
+        String[] parts = command.split(" ");
+        switch (parts[0]) {
+            // TODO: error handling, client should let the user know it's missing stuff
+            // or too much arguments
+            case "!addGroup":
+                if (parts.length > 1) {
+                    createGroup(parts[1]);
+                }
+                break;
+            case "!addUser":
+                if (parts.length > 1) {
+                    addUserToGroup(parts[1]);
+                }
+                break;
+            // Add more commands as needed
+        }
+    }
+
+    public static void sendMessage(String text) throws IOException {
+        byte[] msg = MessageUtils.createMessage(username, null, text, "text/plain");
+
+        if (group != null) {
+            sendGroupMessage(group, msg);
+        } else {
+            // Handle direct messages
+            channel.basicPublish("", recipient, null, msg);
+        }
+    }
+
+    public static void addUserToGroup(String groupName) throws IOException {
+        String queueName = channel.queueDeclare().getQueue();
+        channel.queueBind(queueName, groupName, "");
+        System.out.println("Joined group '" + groupName + "'");
+    }
+
+    public static void createGroup(String groupName) throws IOException {
+        // Declare a fanout exchange for the group
+        channel.exchangeDeclare(groupName, "fanout");
+        System.out.println("Group '" + groupName + "' created.");
+    }
+
+    public static void addUserToGroup(String groupName, String queueName) throws IOException {
+        // Bind the user's queue to the fanout exchange
+        channel.queueBind(queueName, groupName, "");
+        System.out.println("User added to group '" + groupName + "'.");
+    }
+
+    public static void sendGroupMessage(String groupName, byte[] message) throws IOException {
+        // Publish a message to the fanout exchange
+        channel.basicPublish(groupName, "", null, message);
+        System.out.println("Message sent to group '" + groupName + "'.");
+    }
+
     public static Connection tryConnection(ConnectionFactory factory) throws IOException, TimeoutException {
         Thread loadingThread = new Thread(() -> {
             String[] animationFrames = { "|", "/", "-", "\\" };
@@ -97,6 +151,11 @@ public class ChatClient {
 
         while (connection == null) {
             currentHost = HOSTS[hostIndex];
+
+            if (DEBUG && hostIndex == 0) {
+                currentHost = "localhost";
+            }
+
             factory.setHost(currentHost);
             try {
                 Thread.sleep(400); // initial wait just to show animation
@@ -148,7 +207,6 @@ public class ChatClient {
             Thread receiveThread = new Thread(ChatClient::receiveMessages);
             receiveThread.start();
 
-            String recipient = null;
             while (chat_client_running) {
                 if (recipient != null) {
                     prompt = "@" + recipient + ">> ";
@@ -164,15 +222,15 @@ public class ChatClient {
                 // AWS
                 //
                 // updateTerminalSizeThread.start();
-                String text = readLine();
+                String input = readLine();
 
-                if (text != null && text.startsWith("@")) {
-                    recipient = text.substring(1);
+                if (input.startsWith("@")) {
+                    recipient = input.substring(1);
+                } else if (input.startsWith("!")) {
+                    handleCommand(input);
                 } else {
                     if (recipient != null) {
-                        // Serialize the Message object to bytes
-                        MessageData msg = new MessageData(username, text);
-                        channel.basicPublish("", recipient, null, msg.toBytes());
+                        sendMessage(input);
                     }
                 }
             }
@@ -529,6 +587,7 @@ public class ChatClient {
         return Integer.parseInt(dimensions[0]);
     }
 
+    // TODO: Slow readmessages, for when you're receiving too many messages
     private static void receiveMessages() {
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             updateNlines();
@@ -539,20 +598,25 @@ public class ChatClient {
             String contentType = delivery.getProperties().getContentType();
             String routingKey = delivery.getEnvelope().getRoutingKey();
 
-            String sender = "[unkown sender]";
-            String msgText = "[unkown message]";
+            String sender = "[unknown sender]";
+            String msgContent = "[unknown message]";
+
+            String date = "[unknown date]";
+            String hour = "[unknown hour]";
             // Deserialize the Message object
-            MessageData msgdata;
+            MessageProtoBuffer.Message msg;
             try {
-                msgdata = MessageData.fromBytes(messageDataBytes);
-                msgText = msgdata.getMessageBody();
-                sender = msgdata.getSender();
-            } catch (IOException | ClassNotFoundException e) {
+                msg = MessageUtils.fromBytes(messageDataBytes);
+                msgContent = msg.getContent().getBody().toStringUtf8();
+                sender = msg.getSender();
+                hour = msg.getHour();
+                date = msg.getDate();
+            } catch (Exception e) {
                 System.err.println("Failed to deserialize message: " + e.getMessage());
                 return;
             }
 
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm"));
+            String timestamp = String.format("%s às %s", date, hour);
 
             StringBuilder sb = new StringBuilder();
 
@@ -560,7 +624,7 @@ public class ChatClient {
             clearPrompt(sb);
             sb.append("\033[G" + "\033[K");
             if (!debug) {
-                sb.append(String.format("(%s) %s diz: %s\n", timestamp, sender, msgText));
+                sb.append(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
             } else {
                 sb.append(String.format("correlationId(%s), contentType(%s) routingKey(%s), sender(%s)\n",
                         correlationId, contentType, routingKey, sender));

@@ -5,7 +5,7 @@ JARS := $(shell find . -name "*.jar")
 TARGET := target/EvertonChat-1.0-SNAPSHOT-jar-with-dependencies.jar
 
 run: $(TARGET)
-	java -jar $(TARGET)
+	java -ea -jar $(TARGET)
 
 $(TARGET): $(SRC) pom.xml
 	@rm -f $(TARGET) # Delete the old target if it exists
@@ -13,6 +13,7 @@ $(TARGET): $(SRC) pom.xml
 
 markdown:
 	watch --color -n 0.01 glow -p README.md
+
 
 clean:
 	@echo "Cleaning up..."
