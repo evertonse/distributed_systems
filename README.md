@@ -166,7 +166,7 @@ No prompt, se o usuário (tarcisiorocha) quer enviar mensagem para um grupo, ele
 
 ```
 @marciocosta>> #amigos
-#amigos>>  
+#amigos>>
 ```
 A partir disso, o usuário poderá digitar as mensagens para o respectivo grupo:
 

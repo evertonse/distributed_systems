@@ -5,10 +5,13 @@ import java.io.InputStreamReader;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 // import java.util.concurrent.atomic.AtomicInteger;
 
 import com.rabbitmq.client.*;
+import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
 
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
@@ -19,6 +22,7 @@ public class ChatClient {
     private static final String USERNAME = "admin";
     private static final String PASSWORD = "password";
     private static final boolean DEBUG = true;
+    private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
 
     private static boolean chat_client_running = false;
 
@@ -32,11 +36,13 @@ public class ChatClient {
     private static final String PROMPT_DEFAULT = ">>";
 
     private static Channel channel;
+    private static Connection connection = null;
     private static String username;
     private static String recipient;
     private static String group;
     private static String prompt;
     private static int cursorPosition = 0;
+    private static int historyPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static String currentHost = RABBITMQ_HOST;
@@ -72,57 +78,121 @@ public class ChatClient {
     }
 
     private static void handleCommand(String command) throws IOException {
-        String[] parts = command.split(" ");
+        String[] parts = command.substring(1).split(" ");
+        StringBuilder sb = new StringBuilder();
+
         switch (parts[0]) {
-            // TODO: error handling, client should let the user know it's missing stuff
-            // or too much arguments
-            case "!addGroup":
+            case "addGroup":
                 if (parts.length > 1) {
-                    createGroup(parts[1]);
+                    String info = createGroup(parts[1]);
+                    sb.append(info);
+                } else {
+                    sb.append("Usage: !addGroup <group_name>");
                 }
                 break;
-            case "!addUser":
-                if (parts.length > 1) {
-                    addUserToGroup(parts[1]);
+            case "addUser":
+                if (parts.length > 2) {
+                    for (int i = 1; i < parts.length - 1; i++) {
+                        String msg = addUserToGroup(parts[parts.length - 1], parts[i]);
+                        System.out.print(msg);
+                    }
+                } else {
+                    sb.append("Usage: !addUser <user_name_first> .. <user_name_last> <group_name>");
                 }
                 break;
-            // Add more commands as needed
+            case "help":
+                sb.append(helpMenuString());
+                break;
+            default:
+                sb.append("Unknown command: " + (parts[0] == "" ? "<empty>" : parts[0]) + "\n\r");
+                sb.append(helpMenuString());
+                break;
         }
+        // note: doesn't matter if it's empty
+        System.out.println(sb.toString());
+        System.out.flush();
+    }
+
+    private static String helpMenuString() {
+        StringBuilder sb = new StringBuilder();
+        // NOTE: Need \n\r because the cursor might be changed on these lines
+        // Effectively printing on the middle of column on that "new" line
+        sb.append("Available commands:\n\r")
+                .append("\t!addGroup <group_name>: Creates a new group with the specified name.\n\r")
+                .append("\t!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.\n\r")
+                .append("\t@<user_name>: Set conversation to a certain user.\n\r")
+                .append("\t#<group>: Set conversation to a certain group.\n\r")
+                .append("\t!help: Displays this help menu.");
+        return sb.toString();
     }
 
     public static void sendMessage(String text) throws IOException {
-        byte[] msg = MessageUtils.createMessage(username, null, text, "text/plain");
+        byte[] msg = MessageUtils.createMessage(username, group, text, "text/plain");
 
         if (group != null) {
+            // Assumes that we're setting group to null everytime we change to recepient
+            // mode
             sendGroupMessage(group, msg);
-        } else {
+        } else if (recipient != null) {
             // Handle direct messages
             channel.basicPublish("", recipient, null, msg);
         }
     }
 
-    public static void addUserToGroup(String groupName) throws IOException {
-        String queueName = channel.queueDeclare().getQueue();
-        channel.queueBind(queueName, groupName, "");
-        System.out.println("Joined group '" + groupName + "'");
+    public static String createGroup(String groupName) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        if (groupExists(groupName)) {
+            sb.append("Group '" + groupName + "' already exists.");
+        } else {
+            DeclareOk _ok = channel.exchangeDeclare(groupName, "fanout", true);
+            sb.append("Group '" + groupName + "' created.");
+        }
+        String info = addUserToGroup(groupName, username);
+        sb.append("\n\r" + info);
+        return sb.toString();
     }
 
-    public static void createGroup(String groupName) throws IOException {
-        // Declare a fanout exchange for the group
-        channel.exchangeDeclare(groupName, "fanout");
-        System.out.println("Group '" + groupName + "' created.");
+    private static boolean groupExists(String groupName) {
+        try {
+            // Using a Temporary channel
+            // see: https://groups.google.com/g/rabbitmq-users/c/ZTfVwe_HYXc
+            connection.createChannel().exchangeDeclarePassive(groupName);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
-    public static void addUserToGroup(String groupName, String queueName) throws IOException {
+    private static String addUserToGroup(String groupName, String userName) {
+        try {
+            // AMQP.Queue.DeclareOk queueDeclareResult = channel.queueDeclare(queueName,
+            // true, falssskkj, false, null);
+            String queueName = userName;
+
+            // Bind the user's queue to the group exchange
+            if (groupExists(groupName)) {
+                // connection.openChannel(channel.getChannelNumber());
+                // TODO: We need to check if queue exist
+                channel.queueBind(queueName, groupName, "");
+                return ("User '" + userName + "' added to group '" + groupName + "'.");
+            } else {
+                return ("Tried to add '" + userName + "' to nonexistent group called '" + groupName + "'.");
+
+            }
+        } catch (IOException e) {
+            return ("Error adding user '" + userName + "' to group '" + groupName + e);
+        }
+    }
+
+    public static void addUserToGroup2(String groupName, String who) throws IOException {
         // Bind the user's queue to the fanout exchange
-        channel.queueBind(queueName, groupName, "");
+        channel.queueBind(who, groupName, "");
         System.out.println("User added to group '" + groupName + "'.");
     }
 
     public static void sendGroupMessage(String groupName, byte[] message) throws IOException {
         // Publish a message to the fanout exchange
         channel.basicPublish(groupName, "", null, message);
-        System.out.println("Message sent to group '" + groupName + "'.");
     }
 
     public static Connection tryConnection(ConnectionFactory factory) throws IOException, TimeoutException {
@@ -144,7 +214,6 @@ public class ChatClient {
         loadingThread.start();
 
         int hostIndex = 0;
-        Connection connection = null;
 
         factory.setConnectionTimeout(CONNECTION_TIMEOUT);
         factory.setHandshakeTimeout(CONNECTION_TIMEOUT);
@@ -186,6 +255,8 @@ public class ChatClient {
         factory.setPassword(PASSWORD);
         factory.setVirtualHost("/");
 
+        Thread receiveThread = new Thread(ChatClient::receiveMessages);
+
         try {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
@@ -202,13 +273,16 @@ public class ChatClient {
                 username = readLine();
             }
             prompt = PROMPT_DEFAULT;
+            // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
+            // durable to true, we get IOException
             channel.queueDeclare(username, false, false, false, null);
 
-            Thread receiveThread = new Thread(ChatClient::receiveMessages);
             receiveThread.start();
 
             while (chat_client_running) {
-                if (recipient != null) {
+                if (group != null) {
+                    prompt = "#" + group + ">> ";
+                } else if (recipient != null) {
                     prompt = "@" + recipient + ">> ";
                 } else {
                     prompt = PROMPT_DEFAULT;
@@ -226,21 +300,26 @@ public class ChatClient {
 
                 if (input.startsWith("@")) {
                     recipient = input.substring(1);
+                    group = null;
+                } else if (input.startsWith("#")) {
+                    group = input.substring(1);
                 } else if (input.startsWith("!")) {
                     handleCommand(input);
                 } else {
-                    if (recipient != null) {
-                        sendMessage(input);
-                    }
+                    sendMessage(input);
                 }
             }
             receiveThread.interrupt();
         } catch (IOException | InterruptedException | TimeoutException e) {
-            System.out.println("\rFailed to connect: " + e.getMessage());
+            System.out.println("\rFailed to connect: " + e);
         } finally {
             restoreTerminal();
             System.out.println("Goodbye :)");
-            System.exit(0); // Forcefully quit all threads
+            if (!DEBUG) {
+                // NOTE: This makes not print the exceptions in other threads
+                System.exit(0); // Forcefully quit all threads
+            }
+            receiveThread.interrupt();
         }
     }
 
@@ -322,7 +401,7 @@ public class ChatClient {
         }
     }
 
-    // TODO: previous command with arrow up
+    // DONE: previous command with arrow up
     // TODO: autocomplete with TAB
 
     static Integer nlines = 0;
@@ -352,6 +431,8 @@ public class ChatClient {
                 editable_prompt_buffer.setLength(0);
                 nlines = 0;
                 maxNlines = 0;
+                PROMPT_HISTORY.add(result);
+                historyPosition = PROMPT_HISTORY.size();
                 return result;
             } else if (c == 127 || c == 8) { // Backspace
                 deleteChar();
@@ -359,7 +440,19 @@ public class ChatClient {
                 char next = (char) stdind_reader.read();
                 if (next == '[') {
                     next = (char) stdind_reader.read();
-                    if (next == 'C') { // Right arrow
+                    if (next == 'A') { // Up arrow
+                        historyPosition -= 1;
+                        historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                        editable_prompt_buffer.setLength(0);
+                        editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
+                        cursorPosition = editable_prompt_buffer.length();
+                    } else if (next == 'B') { // down arrow
+                        historyPosition += 1;
+                        historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                        editable_prompt_buffer.setLength(0);
+                        editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
+                        cursorPosition = editable_prompt_buffer.length();
+                    } else if (next == 'C') { // Right arrow
                         moveCursor(1);
                     } else if (next == 'D') { // Left arrow
                         moveCursor(-1);
@@ -506,10 +599,10 @@ public class ChatClient {
         // System.out.println(sb.toString() + row + " : " + column);
     }
 
-    // TODO: See if the prompt needs to stay down, or if keeping it up is fine
+    // DONE: See if the prompt needs to stay down, or if keeping it up is fine
     // https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html
     public static void displayPrompt(StringBuilder sb, int terminalWidth, int terminalHeight) {
-        // TODO: Clear old lines when we delete something
+        // DONE: Clear old lines when we delete something
         updateNlines();
 
         int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
@@ -608,7 +701,9 @@ public class ChatClient {
             try {
                 msg = MessageUtils.fromBytes(messageDataBytes);
                 msgContent = msg.getContent().getBody().toStringUtf8();
-                sender = msg.getSender();
+                // NOTE: string + null in java is defined
+                String group = msg.getGroup();
+                sender = msg.getSender() + (group != null && group != "" ? ("#" + group) : "");
                 hour = msg.getHour();
                 date = msg.getDate();
             } catch (Exception e) {

@@ -2,7 +2,8 @@ SRC := $(shell find . -name "*.java")
 CLASSES := $(shell find . -name "*.class")
 JARS := $(shell find . -name "*.jar")
 
-TARGET := target/EvertonChat-1.0-SNAPSHOT-jar-with-dependencies.jar
+DIR := target
+TARGET := $(DIR)/EvertonChat-1.0-SNAPSHOT-jar-with-dependencies.jar
 
 run: $(TARGET)
 	java -ea -jar $(TARGET)
@@ -20,6 +21,9 @@ clean:
 
 	@rm -f $(JARS) # Remove all .jar files
 	@rm -f $(CLASSES) # Remove all .class files
+	@rm -f $(TARGET)
+	@rm -fr $(DIR)
+
 
 	@echo "Cleanup completed."
 
