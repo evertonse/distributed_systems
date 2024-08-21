@@ -16,15 +16,10 @@ import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
 
-public class ChatClient {
+public class Terminal {
     private static InputStreamReader stdind_reader = new InputStreamReader(System.in);
-    private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
-    private static final String USERNAME = "admin";
-    private static final String PASSWORD = "password";
     private static final boolean DEBUG = true;
     private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
-
-    private static boolean chat_client_running = false;
 
     private static final String SAVE_CURSOR = "\u001B[s"; // or "\0337"
     private static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
@@ -33,11 +28,6 @@ public class ChatClient {
     private static final String MOVE_RIGHT = "\033[C"; // or "\033[A"
     private static final String MOVE_LEFT = "\033[D";
 
-    private static final String PROMPT_DEFAULT = ">>";
-
-    private static Channel channel;
-    private static Channel tempChannel;
-    private static Connection connection = null;
     private static String username;
     private static String recipient;
     private static String group;
@@ -46,15 +36,15 @@ public class ChatClient {
     private static int historyPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
-    private static String currentHost = RABBITMQ_HOST;
-    private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
-    private static final int CONNECTION_TIMEOUT = 5000;
+    private static StringBuilder buffer = new StringBuilder();
 
-    public static void clearTerminal() {
-        // Clear the screen
-        System.out.print("\033[H\033[2J");
-        // Move the cursor to the bottom of the terminal
-        System.out.print("\033[999B");
+    public static void clear() {
+        buffer.append("\033[H\033[2J");
+        buffer.append("\033[999B");
+    }
+
+    public static void flush() {
+        System.out.print(buffer.toString());
         System.out.flush();
     }
 
@@ -93,10 +83,7 @@ public class ChatClient {
                 if (parts.length > 2) {
                     for (int i = 1; i < parts.length - 1; i++) {
                         String msg = addUserToGroup(parts[parts.length - 1], parts[i]);
-                        sb.append(msg);
-                        if (i != parts.length - 2) {
-                            sb.append("\n\r");
-                        }
+                        System.out.print(msg);
                     }
                 } else {
                     sb.append("Usage: !addUser <user_name_first> .. <user_name_last> <group_name>");
@@ -155,56 +142,34 @@ public class ChatClient {
     }
 
     private static boolean groupExists(String groupName) {
-        // Using a Temporary channel
-        // see: https://groups.google.com/g/rabbitmq-users/c/ZTfVwe_HYXc
-        try (Channel tempChannel = connection.createChannel()) {
-            tempChannel.exchangeDeclarePassive(groupName);
+        try {
+            // Using a Temporary channel
+            // see: https://groups.google.com/g/rabbitmq-users/c/ZTfVwe_HYXc
+            connection.createChannel().exchangeDeclarePassive(groupName);
             return true;
-        } catch (AlreadyClosedException e) {
-            System.err.println("Channel already closed: " + e.getMessage());
-
-            return false;
-        } catch (Exception e) {
-            // The exception indicates that the exchange doesn't exist or another issue
-            // occurred
-            return false;
-        }
-    }
-
-    private static boolean queueExists(String queueName) {
-        try (Channel tempChannel = connection.createChannel()) {
-            tempChannel.queueDeclarePassive(queueName);
-            return true;
-        } catch (AlreadyClosedException e) {
-            System.err.println("Channel already closed: " + e.getMessage());
-            return false;
-        } catch (Exception e) {
-            // Exception indicates that the queue doesn't exist
-            // Java style XDDD
+        } catch (IOException e) {
             return false;
         }
     }
 
     private static String addUserToGroup(String groupName, String userName) {
         try {
+            // AMQP.Queue.DeclareOk queueDeclareResult = channel.queueDeclare(queueName,
+            // true, falssskkj, false, null);
             String queueName = userName;
 
             // Bind the user's queue to the group exchange
             if (groupExists(groupName)) {
-                // DONE: We need to check if queue exist
-                if (queueExists(queueName)) {
-                    channel.queueBind(queueName, groupName, "");
-                    return ("User '" + userName + "' added to group '" + groupName + "'.");
-                } else {
-                    return ("User '" + userName + "' does not exist.");
-                }
+                // connection.openChannel(channel.getChannelNumber());
+                // TODO: We need to check if queue exist
+                channel.queueBind(queueName, groupName, "");
+                return ("User '" + userName + "' added to group '" + groupName + "'.");
             } else {
                 return ("Tried to add '" + userName + "' to nonexistent group called '" + groupName + "'.");
 
             }
         } catch (IOException e) {
-            return ("Error adding user '" + userName + "' to group '" + groupName + "'" + e.getMessage()
-                    + e.getCause());
+            return ("Error adding user '" + userName + "' to group '" + groupName + e);
         }
     }
 
@@ -272,7 +237,7 @@ public class ChatClient {
 
     public static void main(String[] args) throws IOException, TimeoutException {
 
-        clearTerminal();
+        clear();
 
         ConnectionFactory factory = new ConnectionFactory();
         factory.setUsername(USERNAME);
@@ -284,7 +249,6 @@ public class ChatClient {
         try {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
-            tempChannel = connection.createChannel();
             chat_client_running = true;
             setResizeHandler();
 
