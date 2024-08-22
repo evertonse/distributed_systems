@@ -37,6 +37,8 @@
   </properties>
 
     <dependencies>
+        <!--#################################################-->
+        <!-- NOT USED -->
         <!-- <dependency> -->
         <!--     <groupId>net.java.dev.jna</groupId> -->
         <!--     <artifactId>jna</artifactId> -->
@@ -48,11 +50,12 @@
         <!--     <artifactId>jline</artifactId> -->
         <!--     <version>3.26.3</version> -->
         <!-- </dependency> -->
+        <!--#################################################-->
 
         
         <!-- Search for versions here https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
         <!-- Attention This version of protobuffer works better if you -->
-        <!-- you match the `com.google.protobuf` version with `protoc` version -->
+        <!-- you match the `com.google.protobuf` version with YOUR `protoc` version -->
         <dependency>
           <groupId>com.google.protobuf</groupId>
           <artifactId>protobuf-java</artifactId>

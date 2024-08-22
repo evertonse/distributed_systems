@@ -1,11 +1,25 @@
-## Compilação do projeto e rodar
+# Compilação do projeto e rodar
 
 ```
 make run
 
 ```
 
-### ProtocolBufferersExample
+## Testado com as seguintes configurações
+
+
+    $ mvn --version
+    Apache Maven 3.9.8 (36645f6c9b5079805ea5009217e36f2cffd34256)
+
+    $ java --version
+    java 22.0.2 2024-07-16
+    Java(TM) SE Runtime Environment (build 22.0.2+9-70)
+    Java HotSpot(TM) 64-Bit Server VM (build 22.0.2+9-70, mixed mode, sharing)
+
+    $ protoc --version
+    libprotoc 27.3
+
+## ProtocolBufferers Setup
 
 - Instalação do compilador protoc
 

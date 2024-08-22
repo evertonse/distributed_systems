@@ -1,9 +1,19 @@
+import java.io.BufferedReader;
 import java.io.IOException;
 
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.net.http.HttpClient;
+
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+
+import java.util.Base64;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,8 +29,8 @@ import sun.misc.SignalHandler;
 public class ChatClient {
     private static InputStreamReader stdind_reader = new InputStreamReader(System.in);
     private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
-    private static final String USERNAME = "admin";
-    private static final String PASSWORD = "password";
+    private static final String RABBITMQ_USERNAME = "admin";
+    private static final String RABBITMQ_PASSWORD = "password";
     private static final boolean DEBUG = true;
     private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
 
@@ -46,8 +56,9 @@ public class ChatClient {
     private static int historyPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
-    private static String currentHost = RABBITMQ_HOST;
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
+    private static String currentHost = HOSTS[0];
+    private static String rabbitMqApiUrl = null;
     private static final int CONNECTION_TIMEOUT = 5000;
 
     public static void clearTerminal() {
@@ -89,6 +100,14 @@ public class ChatClient {
                     sb.append("Usage: !addGroup <group_name>");
                 }
                 break;
+            case "removeGroup":
+                if (parts.length > 1) {
+                    String info = removeGroup(parts[1]);
+                    sb.append(info);
+                } else {
+                    sb.append("Usage: !removeGroup <group_name>");
+                }
+                break;
             case "addUser":
                 if (parts.length > 2) {
                     for (int i = 1; i < parts.length - 1; i++) {
@@ -102,6 +121,20 @@ public class ChatClient {
                     sb.append("Usage: !addUser <user_name_first> .. <user_name_last> <group_name>");
                 }
                 break;
+            case "delFromGroup":
+                if (parts.length > 2) {
+                    for (int i = 1; i < parts.length - 1; i++) {
+                        String msg = removeUserFromGroup(parts[parts.length - 1], parts[i]);
+                        sb.append(msg);
+                        if (i != parts.length - 2) {
+                            sb.append("\n\r");
+                        }
+                    }
+                } else {
+                    sb.append("Usage: !delFromGroup <user_name_first> .. <user_name_last> <group_name>");
+                }
+                break;
+
             case "help":
                 sb.append(helpMenuString());
                 break;
@@ -119,12 +152,16 @@ public class ChatClient {
         StringBuilder sb = new StringBuilder();
         // NOTE: Need \n\r because the cursor might be changed on these lines
         // Effectively printing on the middle of column on that "new" line
+        String pad = "    ";
         sb.append("Available commands:\n\r")
-                .append("\t!addGroup <group_name>: Creates a new group with the specified name.\n\r")
-                .append("\t!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.\n\r")
-                .append("\t@<user_name>: Set conversation to a certain user.\n\r")
-                .append("\t#<group>: Set conversation to a certain group.\n\r")
-                .append("\t!help: Displays this help menu.");
+                .append(pad + "!addGroup <group_name>: Creates a new group with the specified name.\n\r")
+                .append(pad
+                        + "!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.\n\r")
+                .append(pad + "@<user_name>: Set conversation to a certain user.\n\r")
+                .append(pad + "#<group>: Set conversation to a certain group.\n\r")
+                .append(pad + "!help: Displays this help menu.\n\r")
+                .append(pad + "!delFromGroup <user_name_first> .. <user_name_last> <group_name>\n\r")
+                .append(pad + "!removeGroup <group_name>");
         return sb.toString();
     }
 
@@ -226,7 +263,8 @@ public class ChatClient {
 
             while (!Thread.currentThread().isInterrupted()) {
                 System.out
-                        .print("\r" + animationFrames[i++ % animationFrames.length] + " Connecting  to " + currentHost);
+                        .print(MOVE_TO_START_AND_CLEAR + "\r" + animationFrames[i++ % animationFrames.length]
+                                + " Connecting  to " + currentHost);
                 try {
                     Thread.sleep(100);
                 } catch (InterruptedException e) {
@@ -235,15 +273,18 @@ public class ChatClient {
             }
         });
 
-        loadingThread.start();
-
         int hostIndex = 0;
+        if (DEBUG) {
+            currentHost = "localhost";
+        }
 
+        loadingThread.start();
         factory.setConnectionTimeout(CONNECTION_TIMEOUT);
         factory.setHandshakeTimeout(CONNECTION_TIMEOUT);
 
         while (connection == null) {
             currentHost = HOSTS[hostIndex];
+            rabbitMqApiUrl = "http://" + currentHost + ":15672/api"; // RabbitMQ
 
             if (DEBUG && hostIndex == 0) {
                 currentHost = "localhost";
@@ -270,13 +311,93 @@ public class ChatClient {
         return connection;
     }
 
+    private static String removeGroup(String groupName) {
+        try {
+            if (groupExists(groupName)) {
+                channel.exchangeDelete(groupName);
+                return ("Group '" + groupName + "' removed.");
+            }
+            return ("Group '" + groupName + "' does not exist.");
+
+        } catch (IOException e) {
+            return String.format("Error when removing group '%s': %\n\rCause: %s", groupName, e.getMessage(),
+                    e.getCause());
+        }
+    }
+
+    private static boolean isUserBoundToGroup(String groupName, String username) {
+        return true;
+    }
+
+    private static boolean isUserBoundToGroup3(String groupName, String username) throws Exception {
+        String url = rabbitMqApiUrl + "/exchanges/%2F/" + groupName + "/bindings";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Authorization",
+                        "Basic " + Base64.getEncoder()
+                                .encodeToString((RABBITMQ_USERNAME + ":" + RABBITMQ_PASSWORD).getBytes()))
+                .GET()
+                .build();
+
+        var httpClient = HttpClient.newHttpClient();
+        // Send the request and get the response
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // Parse the JSON response manually
+        String jsonResponse = response.body();
+        System.out.println(jsonResponse);
+        return jsonResponse.contains("\"destination\":\"" + username + "\"");
+    }
+
+    private static boolean isUserBoundToGroup2(String groupName, String username) throws Exception {
+        String url = rabbitMqApiUrl + "/exchanges/%2F/" + groupName + "/bindings";
+        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+        conn.setRequestMethod("GET");
+        String auth = RABBITMQ_USERNAME + ":" + RABBITMQ_PASSWORD;
+        String encodedAuth = java.util.Base64.getEncoder().encodeToString(auth.getBytes());
+        conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+        StringBuilder response = new StringBuilder();
+        String inputLine;
+
+        while ((inputLine = in.readLine()) != null) {
+            response.append(inputLine);
+        }
+        in.close();
+
+        // Parse the JSON response manually
+        String jsonResponse = response.toString();
+
+        return jsonResponse.contains("\"destination\":\"" + username + "\"");
+    }
+
+    private static String removeUserFromGroup(String groupName, String user) {
+        try {
+            if (groupExists(groupName)) {
+                if (queueExists(user)) {
+                    if (isUserBoundToGroup(groupName, user)) {
+                    }
+                    channel.queueUnbind(user, groupName, "");
+                    return String.format("User '%s' removed from group '%s'", user, groupName);
+                } else {
+                    return String.format("User '%s' doesn't exist '%s'", user, groupName);
+                }
+            }
+            return String.format("Tried to removed user '%s' from nonexistent group '%s'", user, groupName);
+        } catch (IOException e) {
+            return String.format("Erro ao remover %s do grupo %s: %s", user, groupName, e.getMessage());
+        }
+    }
+
     public static void main(String[] args) throws IOException, TimeoutException {
 
         clearTerminal();
 
         ConnectionFactory factory = new ConnectionFactory();
-        factory.setUsername(USERNAME);
-        factory.setPassword(PASSWORD);
+        factory.setUsername(RABBITMQ_USERNAME);
+        factory.setPassword(RABBITMQ_PASSWORD);
         factory.setVirtualHost("/");
 
         Thread receiveThread = new Thread(ChatClient::receiveMessages);
@@ -288,13 +409,15 @@ public class ChatClient {
             chat_client_running = true;
             setResizeHandler();
 
-            System.out.println("Raw mode enabled. Press 'Crtl+c' to quit.");
+            System.out
+                    .println(
+                            "Raw mode enabled.\n\rPress 'Crtl+c' to quit.\n\rType '!help' to see available commands after entering your username.");
             setTerminalToRawMode();
 
             prompt = "User: ";
             username = readLine();
             while (chat_client_running && username == "" || username.contains(" ")) {
-                System.out.println("username can't contain spaces, neither be empty.");
+                System.out.println("Username can't contain spaces, neither be empty.");
                 username = readLine();
             }
             prompt = PROMPT_DEFAULT;
@@ -339,6 +462,11 @@ public class ChatClient {
             System.out.println("\rFailed to connect: " + e);
         } finally {
             restoreTerminal();
+            channel.close();
+            // NOTE(excyber): important to make sure threads doesn't hang
+            // closing the connection already closes the channel I think, because
+            // it does not hangs even if we ONLY close the connection
+            connection.close();
             System.out.println("Goodbye :)");
             if (!DEBUG) {
                 // NOTE: This makes not print the exceptions in other threads
@@ -678,7 +806,7 @@ public class ChatClient {
             e.printStackTrace();
         }
 
-        System.out.println("\nTerminal has been restored to `cooked` mode.");
+        System.out.println("\nTerminal has been restored to 'cooked' mode.");
     }
 
     private static int getTerminalWidth() throws IOException, InterruptedException {
