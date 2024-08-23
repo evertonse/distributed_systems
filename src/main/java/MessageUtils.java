@@ -1,4 +1,7 @@
+import java.io.IOException;
 import java.io.Serializable;
+import java.io.File;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -7,7 +10,7 @@ import com.google.protobuf.ByteString;
 public class MessageUtils {
 
     // Create a new message with the provided details
-    public static byte[] createMessage(String sender, String group, String content, String mimeType) {
+    public static byte[] createTextMessage(String sender, String group, String content, String mimeType) {
         LocalDateTime now = LocalDateTime.now();
         String date = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
         String hour = now.format(DateTimeFormatter.ofPattern("HH:mm:ss"));
@@ -29,6 +32,30 @@ public class MessageUtils {
                 .build();
 
         // Serialize the message to a byte array
+        return messageProto.toByteArray();
+    }
+
+    public static byte[] createFileMessage(String sender, String group, File file, String mimeType) throws IOException {
+        LocalDateTime now = LocalDateTime.now();
+        String date = now.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        String hour = now.format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+        byte[] fileContent = Files.readAllBytes(file.toPath());
+
+        MessageProtoBuffer.Content contentProto = MessageProtoBuffer.Content.newBuilder()
+                .setType(mimeType)
+                .setBody(ByteString.copyFrom(fileContent))
+                .setName(file.getName())
+                .build();
+
+        MessageProtoBuffer.Message messageProto = MessageProtoBuffer.Message.newBuilder()
+                .setSender(sender == null ? "unknown" : sender)
+                .setDate(date)
+                .setHour(hour)
+                .setGroup(group == null ? "" : group)
+                .setContent(contentProto)
+                .build();
+
         return messageProto.toByteArray();
     }
 

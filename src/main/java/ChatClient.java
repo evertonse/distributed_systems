@@ -1,4 +1,5 @@
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 
 import java.io.InputStreamReader;
@@ -9,7 +10,9 @@ import java.net.http.HttpClient;
 
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -33,6 +36,7 @@ public class ChatClient {
     private static final String RABBITMQ_PASSWORD = "password";
     private static final boolean DEBUG = true;
     private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
+    private static final String SPECIAL_CHARS = "!#@";
 
     private static boolean chat_client_running = false;
 
@@ -44,9 +48,9 @@ public class ChatClient {
     private static final String MOVE_LEFT = "\033[D";
 
     private static final String PROMPT_DEFAULT = ">>";
+    private static final String FILES_DEFAULT_FOLDER = "assets";
 
     private static Channel channel;
-    private static Channel tempChannel;
     private static Connection connection = null;
     private static String username;
     private static String recipient;
@@ -65,26 +69,94 @@ public class ChatClient {
         // Clear the screen
         System.out.print("\033[H\033[2J");
         // Move the cursor to the bottom of the terminal
-        System.out.print("\033[999B");
+        System.out.print("\033[999B\r");
         System.out.flush();
     }
 
     public static void setResizeHandler() {
-        // Set up the handler for SIGWINCH (window change signal)
+        // Setting lê handler for SIGWINCH (window change signal)
         Signal.handle(new Signal("WINCH"), new SignalHandler() {
             @Override
             public void handle(Signal sig) {
                 updateNlines();
-                // maxNlines = nlines;
-                // prompt = String.format("nlines::%d, maxNlines::%d", nlines, maxNlines);
-                // StringBuilder sb = new StringBuilder();
-                // clearPrompt(sb);
-                // displayPrompt(sb, terminalWidth, terminalHeight);
-                // System.out.print(sb);
-                // System.out.flush();
-
             }
         });
+    }
+
+    private static boolean isValidUsername(String username) {
+        if (username == "" || username.contains(" ")) {
+            return false;
+        }
+        for (char c : SPECIAL_CHARS.toCharArray()) {
+            if (username.indexOf(c) != -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isValidGroupName(String groupName) {
+        if (groupName == "") {
+            return false;
+        }
+        for (char c : SPECIAL_CHARS.toCharArray()) {
+            if (groupName.indexOf(c) != -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static String handleUploadCommand(String filePath) {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            return "File not found: " + filePath;
+        }
+
+        String destination = (group != null) ? group : recipient;
+        if (destination == null) {
+            return ("Entre no prompt de algum grupo ou pessoa para enviar um arquivo.");
+        } else {
+            // Start a new thread for file upload
+            new Thread(() -> {
+                try {
+                    sendFileMessage(file);
+                } catch (IOException e) {
+                    printWithPrompt("Failed to upload the file: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }).start();
+        }
+
+        return ("Enviando \"" + filePath + "\" para " + destination + ".");
+    }
+
+    public static void sendFileMessage(File file) throws IOException {
+        String mimeType = Files.probeContentType(file.toPath());
+        byte[] msg = MessageUtils.createFileMessage(username, group, file, mimeType);
+
+        if (group != null) {
+            // Send to group
+            printWithPrompt("Group is null, this hasn't been checked properly\n\r");
+            if (true) {
+                return;
+            }
+            sendGroupMessage(group, msg);
+        } else if (recipient != null) {
+            // Send to individual recipient
+            String whereTo = FILE_TRANSFER_PREFIX + recipient;
+            channel.basicPublish("", whereTo, null, msg);
+            printWithPrompt(String.format("Arquivo \" %s\" foi enviado para @%s.\n\r", file.toString(), recipient));
+        } else {
+            printWithPrompt("No recipient or group selected. Please select a recipient or group first.\n\r");
+        }
+    }
+
+    private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
+
+    public static void declareFileTransferQueue(String username) throws IOException {
+        String queueName = FILE_TRANSFER_PREFIX + username;
+        channel.queueDeclare(queueName, true, false, false, null);
     }
 
     private static void handleCommand(String command) throws IOException {
@@ -94,8 +166,14 @@ public class ChatClient {
         switch (parts[0]) {
             case "addGroup":
                 if (parts.length > 1) {
-                    String info = createGroup(parts[1]);
-                    sb.append(info);
+                    String groupName = parts[1];
+                    if (isValidGroupName(groupName)) {
+                        String info = createGroup(groupName);
+                        sb.append(info);
+                    } else {
+                        sb.append("Group name can't be empty, neither have special characters" + SPECIAL_CHARS);
+                    }
+
                 } else {
                     sb.append("Usage: !addGroup <group_name>");
                 }
@@ -134,6 +212,18 @@ public class ChatClient {
                     sb.append("Usage: !delFromGroup <user_name_first> .. <user_name_last> <group_name>");
                 }
                 break;
+            case "upload":
+                if (parts.length > 1) {
+                    for (int i = 1; i < parts.length; i++) {
+                        sb.append(handleUploadCommand(parts[i]));
+                        if (i != parts.length - 1) {
+                            sb.append("\n\r");
+                        }
+                    }
+                } else {
+                    sb.append("Usage: !upload <filepath>");
+                }
+                break;
 
             case "help":
                 sb.append(helpMenuString());
@@ -159,14 +249,15 @@ public class ChatClient {
                         + "!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.\n\r")
                 .append(pad + "@<user_name>: Set conversation to a certain user.\n\r")
                 .append(pad + "#<group>: Set conversation to a certain group.\n\r")
-                .append(pad + "!help: Displays this help menu.\n\r")
-                .append(pad + "!delFromGroup <user_name_first> .. <user_name_last> <group_name>\n\r")
-                .append(pad + "!removeGroup <group_name>");
+                .append(pad + "!delFromGroup <user_names...> <group_name>\n\r")
+                .append(pad + "!removeGroup <group_name>\n\r")
+                .append(pad + "!upload <filepaths...>: send files to either group or user\n\r")
+                .append(pad + "!help: Displays this help menu.");
         return sb.toString();
     }
 
     public static void sendMessage(String text) throws IOException {
-        byte[] msg = MessageUtils.createMessage(username, group, text, "text/plain");
+        byte[] msg = MessageUtils.createTextMessage(username, group, text, "text/plain");
 
         if (group != null) {
             // Assumes that we're setting group to null everytime we change to recepient
@@ -184,6 +275,8 @@ public class ChatClient {
             sb.append("Group '" + groupName + "' already exists.");
         } else {
             DeclareOk _ok = channel.exchangeDeclare(groupName, "fanout", true);
+            // Create the file tranfer exchanger as well and bind both
+            _ok = channel.exchangeDeclare(FILE_TRANSFER_PREFIX + groupName, "fanout", true);
             sb.append("Group '" + groupName + "' created.");
         }
         String info = addUserToGroup(groupName, username);
@@ -208,6 +301,25 @@ public class ChatClient {
         }
     }
 
+    // https://stackoverflow.com/questions/3457305/how-can-i-check-whether-a-rabbitmq-message-queue-exists-or-not
+    // queue.declare is an idempotent operation. So, if you run it once, twice, N
+    // times, the result will still be the same.
+    // If you want to ensure that the queue exists, just declare it before using it.
+    // Make sure you declare it with the same durability, exclusivity,
+    // auto-deleted-ness every time, otherwise you'll get an exception.
+    // Another ideia:
+    // @Autowired
+    // public RabbitAdmin rabbitAdmin;
+    //
+    //
+    // //###############get you queue details##############
+    // Properties properties = rabbitAdmin.getQueueProperties(queueName);
+    //
+    // //do your custom logic
+    // if( properties == null)
+    // {
+    // createQueue(queueName);
+    // }
     private static boolean queueExists(String queueName) {
         try (Channel tempChannel = connection.createChannel()) {
             tempChannel.queueDeclarePassive(queueName);
@@ -400,12 +512,12 @@ public class ChatClient {
         factory.setPassword(RABBITMQ_PASSWORD);
         factory.setVirtualHost("/");
 
-        Thread receiveThread = new Thread(ChatClient::receiveMessages);
+        Thread receiveMessageThread = new Thread(ChatClient::receiveMessages);
+        Thread receiveFileThread = new Thread(ChatClient::receiveFiles);
 
         try {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
-            tempChannel = connection.createChannel();
             chat_client_running = true;
             setResizeHandler();
 
@@ -416,16 +528,20 @@ public class ChatClient {
 
             prompt = "User: ";
             username = readLine();
-            while (chat_client_running && username == "" || username.contains(" ")) {
-                System.out.println("Username can't contain spaces, neither be empty.");
+            while (chat_client_running && !isValidUsername(username)) {
+                System.out.println(
+                        "Username can't contain spaces, special characters (" + SPECIAL_CHARS
+                                + "),  neither be empty.");
                 username = readLine();
             }
             prompt = PROMPT_DEFAULT;
             // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
             // durable to true, we get IOException
             channel.queueDeclare(username, false, false, false, null);
+            declareFileTransferQueue(username);
 
-            receiveThread.start();
+            receiveMessageThread.start();
+            receiveFileThread.start();
 
             while (chat_client_running) {
                 if (group != null) {
@@ -451,13 +567,19 @@ public class ChatClient {
                     group = null;
                 } else if (input.startsWith("#")) {
                     group = input.substring(1);
+                    if (!groupExists(group)) {
+                        System.out.println("Group '" + group + "' doesn't exist.");
+                        System.out.flush();
+                        group = null;
+                    }
                 } else if (input.startsWith("!")) {
                     handleCommand(input);
                 } else {
                     sendMessage(input);
                 }
             }
-            receiveThread.interrupt();
+            receiveMessageThread.interrupt();
+            receiveFileThread.interrupt();
         } catch (IOException | InterruptedException | TimeoutException e) {
             System.out.println("\rFailed to connect: " + e);
         } finally {
@@ -472,7 +594,8 @@ public class ChatClient {
                 // NOTE: This makes not print the exceptions in other threads
                 System.exit(0); // Forcefully quit all threads
             }
-            receiveThread.interrupt();
+            receiveMessageThread.interrupt();
+            receiveFileThread.interrupt();
         }
     }
 
@@ -556,6 +679,7 @@ public class ChatClient {
 
     // DONE: previous command with arrow up
     // TODO: autocomplete with TAB
+    // TODO: Terminal is overriding previous messages when terminal height increases
 
     static Integer nlines = 0;
     static Integer maxNlines = 0;
@@ -833,10 +957,10 @@ public class ChatClient {
         return Integer.parseInt(dimensions[0]);
     }
 
-    // TODO: Slow readmessages, for when you're receiving too many messages
+    // TODO: Maybe put a delay for readmessages, for when you're receiving too many
+    // messages. sleep(2.0) something like that
     private static void receiveMessages() {
         DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-            updateNlines();
             byte[] messageDataBytes = delivery.getBody();
             Map<String, Object> headers = delivery.getProperties().getHeaders();
 
@@ -866,37 +990,109 @@ public class ChatClient {
 
             String timestamp = String.format("%s às %s", date, hour);
 
-            StringBuilder sb = new StringBuilder();
-
-            boolean debug = false;
-            clearPrompt(sb);
-            sb.append("\033[G" + "\033[K");
-            if (!debug) {
-                sb.append(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
-            } else {
-                sb.append(String.format("correlationId(%s), contentType(%s) routingKey(%s), sender(%s)\n",
-                        correlationId, contentType, routingKey, sender));
-            }
-
-            for (int i = 0; i < maxNlines; i++) {
-                sb.append("\n"); // Move cursor up one line
-            }
-
-            for (int i = 0; i < maxNlines; i++) {
-                sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
-            }
-
-            displayPrompt(sb, terminalWidth, terminalHeight);
-            System.out.print(sb);
-            System.out.flush();
+            printWithPrompt(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
         };
 
         try {
             channel.basicConsume(username, true, deliverCallback, consumerTag -> {
             });
         } catch (IOException e) {
+            System.out.println("`receiveMessages` forcefully clased probably, here's the stack trace: ");
             e.printStackTrace();
         }
+    }
+
+    private static void printWithPrompt(String text) {
+        updateNlines();
+        StringBuilder sb = new StringBuilder();
+        sb.append("\033[G" + "\033[K");
+        sb.append(text);
+        for (int i = 0; i < maxNlines; i++) {
+            sb.append("\n"); // Move cursor up one line
+        }
+
+        for (int i = 0; i < maxNlines; i++) {
+            sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
+        }
+
+        displayPrompt(sb, terminalWidth, terminalHeight);
+        System.out.print(sb.toString());
+        System.out.flush();
+    }
+
+    public static void saveReceivedFile(String filePath, byte[] fileContentBytes) throws IOException {
+        Path path = Paths.get(filePath);
+        printWithPrompt(filePath);
+        Path parentDir = path.getParent();
+
+        // Ensure the parent directories exist
+        if (parentDir != null) {
+            Files.createDirectories(parentDir);
+        }
+
+        Files.write(path, fileContentBytes);
+    }
+
+    private static void receiveFiles() {
+        String queueName = FILE_TRANSFER_PREFIX + username;
+        DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+            byte[] messageDataBytes = delivery.getBody();
+
+            String sender = "[unknown sender]";
+            String date = "[unknown date]";
+            String hour = "[unknown hour]";
+            String fileName = null;
+            byte[] fileContentBytes = null;
+            // Deserialize the Message object
+            MessageProtoBuffer.Message msg;
+            try {
+                msg = MessageUtils.fromBytes(messageDataBytes);
+                MessageProtoBuffer.Content content = msg.getContent();
+                fileContentBytes = content.getBody().toByteArray();
+                fileName = content.getName();
+                String group = msg.getGroup();
+                sender = msg.getSender() + (group != null && group != "" ? ("#" + group) : "");
+                hour = msg.getHour();
+                date = msg.getDate();
+            } catch (Exception e) {
+                printWithPrompt("Failed to deserialize message: " + e.getMessage());
+                return;
+            }
+            String filePath = FILES_DEFAULT_FOLDER + '/' + String.format(
+                    "%s-%s-%s-%s", date, hour, sender, fileName)
+                    .replace("/", "-")
+                    .replace("\\", "-");
+
+            saveReceivedFile(filePath, fileContentBytes);
+            String timestamp = String.format("%s às %s", date, hour);
+            printWithPrompt(String.format("(%s) Arquivo \"%s\" recebido de %s.\n", timestamp, fileName, sender));
+        };
+
+        try {
+
+            channel.basicConsume(queueName, true, deliverCallback, consumerTag -> {
+            });
+        } catch (IOException e) {
+            System.out.println("`receiveMessages` forcefully clased probably, here's the stack trace: ");
+            e.printStackTrace();
+        }
+    }
+
+    // Change this to me
+    public static void receiveFiles2(String username) {
+        String queueName = FILE_TRANSFER_PREFIX + username;
+        new Thread(() -> {
+            try {
+                channel.basicConsume(queueName, true, (consumerTag, delivery) -> {
+                    byte[] fileContent = delivery.getBody();
+
+                    // Save the file
+                }, consumerTag -> {
+                });
+            } catch (IOException e) {
+                System.out.println("Error starting file receiver: " + e.getMessage());
+            }
+        }).start();
     }
 
 }
