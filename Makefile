@@ -27,6 +27,13 @@ clean:
 
 	@echo "Cleanup completed."
 
-.PHONY: markdown run clean
+reset:
+	sudo rabbitmqctl stop_app
+	sudo rabbitmqctl reset
+	sudo rabbitmqctl start_app
+	sudo rabbitmq-plugins enable rabbitmq_management
+
+
+.PHONY: markdown run clean reset
 
 

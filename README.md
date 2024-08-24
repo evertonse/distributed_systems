@@ -5,6 +5,7 @@ make run
 
 ```
 
+
 ## Testado com as seguintes configurações
 
 
@@ -20,6 +21,7 @@ make run
     libprotoc 27.3
 
 ## ProtocolBufferers Setup
+
 
 - Instalação do compilador protoc
 
@@ -109,12 +111,12 @@ Depois de impressa a mensagem, o prompt volta para o estado anterior:
 Agora segue um exemplo de três mensagens recebidas de joaosantos:
 ```
 (21/09/2016 às 20:55) joaosantos diz: Opa!
-@marciocosta>> 
+@marciocosta>>
 
 (21/09/2016 às 20:55) joaosantos diz: vamos!!!
-@marciocosta>> 
+@marciocosta>>
 (21/09/2016 às 20:56) joaosantos diz: estou indo para a sua casa
-@marciocosta>> 
+@marciocosta>>
 ```
 
 -----------------------------------------------------------------------------
@@ -227,7 +229,7 @@ O efeito do comando "removeGroup" deve ser refletido no RabbitMQ como a exclusã
 
 ## Envio de arquivos
 
-O chat deve disponibilizar o comando "upload" para permitir que um usuário envie arquivos (de qualquer tipo) para um usuário ou grupo corrente. 
+O chat deve disponibilizar o comando "upload" para permitir que um usuário envie arquivos (de qualquer tipo) para um usuário ou grupo corrente.
 
 Exemplo do envio do arquivo "aula1.pdf" para o usuário "marciocosta":
 
@@ -254,7 +256,7 @@ Depois que o arquivo for transferido do chat emissor para o servidor do RabbitMQ
 Arquivo "/home/tarcisio/aula1.pdf" foi enviado para @marciocosta !
 
 ```
-O lado receptor do chat, deve receber o arquivo também em background sem bloqueios. É realizado automaticamente o download de arquivos a serem recebidos em uma pasta default (ex: /home/tarcisio/chat/downloads). Quando um download for completado, deve ser exibida a mensagem ```(<data> às <hora>) Arquivo <nome-do-arquivo> recebido de @<id-do-emissor>!``` no lado receptor. Exemplo: 
+O lado receptor do chat, deve receber o arquivo também em background sem bloqueios. É realizado automaticamente o download de arquivos a serem recebidos em uma pasta default (ex: /home/tarcisio/chat/downloads). Quando um download for completado, deve ser exibida a mensagem ```(<data> às <hora>) Arquivo <nome-do-arquivo> recebido de @<id-do-emissor>!``` no lado receptor. Exemplo:
 
 
 ```
@@ -264,9 +266,34 @@ O lado receptor do chat, deve receber o arquivo também em background sem bloque
 Obs: De acordo com o formato da mensagem (Protocol Buffers) descrita na etapa2, juntamente com o arquivo é enviado também o seu tipo MIME. Em java (versão 7 ou posterior) podem-se usar os seguintes comandos para descobrir em tempo de execução o tipo MIME de um arquivo:
 
 ```
-String caminhoAoArquivo = "/home/tarcisio/aula1.pdf"; 
+String caminhoAoArquivo = "/home/tarcisio/aula1.pdf";
 Path source = Paths.get(caminhoAoArquivo);
 String tipoMime = Files.probeContentType(source);
 System.out.println(tipoMime);
 
 ```
+
+-----------------------------------------------------------------------------
+# Etapa 5
+## Listar todos os usuários em um dado grupo
+
+O chat deve disponibilizar operação para listar todos os usuários de um dado grupo do chat. Ex:
+
+```
+@marciocosta>> !listUsers ufs
+tarcisio, marciocosta, faviosantos, monicaferraz
+
+@marciocosta>>
+```
+
+## Listar todos os grupos
+
+O chat deve disponibilizar operação para listar todos os grupos dos quais o usuário corrente faz parte. Ex:
+
+```
+@marciocosta>> !listGroups
+ufs, amigos, familia
+@marciocosta>>
+```
+
+Para implementar essas operações, deve-se usar a API HTTP de Gerenciamento do RabbitMQ: https://rawcdn.githack.com/rabbitmq/rabbitmq-management/v3.7.7/priv/www/api/index.html

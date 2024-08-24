@@ -32,6 +32,7 @@ import sun.misc.SignalHandler;
 public class ChatClient {
     private static InputStreamReader stdind_reader = new InputStreamReader(System.in);
     private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
+    private static final String RABBITMQ_PORT = "15672"; // Default management plugin port
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
     private static final boolean DEBUG = true;
@@ -62,8 +63,14 @@ public class ChatClient {
     private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static String currentHost = HOSTS[0];
-    private static String rabbitMqApiUrl = null;
     private static final int CONNECTION_TIMEOUT = 5000;
+
+    private static final String[] POSSIBLE_COMMANDS = {
+            /* Etapa 2 */ "addGroup", "removeGroup", "addUser", "delFromGroup",
+            /* Etapa 3 */ "upload",
+            /* Etapa 5 */ "listUsers", "listGroups",
+            /* Final ***/ "help"
+    };
 
     public static void clearTerminal() {
         // Clear the screen
@@ -107,6 +114,25 @@ public class ChatClient {
         return true;
     }
 
+    public static String handleListUsersCommand(String group) {
+        List<String> names = apiGetQueuesBoundToExchange(group);
+        if (names == null || names.size() == 0) {
+            return "No users added to group \"" + group + "\".";
+        }
+        String commaSeparatedNames = String.join(", ", names);
+        return commaSeparatedNames;
+    }
+
+    public static String handleListGroupsCommand() {
+        List<String> names = apiGetExchangers();
+        if (names == null || names.size() == 0) {
+            return "No groups were created yet.";
+        }
+
+        String commaSeparatedNames = String.join(", ", names);
+        return commaSeparatedNames;
+    }
+
     public static String handleUploadCommand(String filePath) {
         File file = new File(filePath);
         if (!file.exists()) {
@@ -136,12 +162,8 @@ public class ChatClient {
         byte[] msg = MessageUtils.createFileMessage(username, group, file, mimeType);
 
         if (group != null) {
-            // Send to group
-            printWithPrompt("Group is null, this hasn't been checked properly\n\r");
-            if (true) {
-                return;
-            }
-            sendGroupMessage(group, msg);
+            sendGroupMessage(FILE_TRANSFER_PREFIX + group, msg);
+            printWithPrompt(String.format("Arquivo \" %s\" foi enviado para #%s.\n\r", file.toString(), group));
         } else if (recipient != null) {
             // Send to individual recipient
             String whereTo = FILE_TRANSFER_PREFIX + recipient;
@@ -225,6 +247,24 @@ public class ChatClient {
                 }
                 break;
 
+            case "listUsers":
+                if (parts.length == 1 && group != null) {
+                    sb.append(handleListUsersCommand(group));
+                } else if (parts.length == 2) {
+                    sb.append(handleListUsersCommand(parts[1]));
+                } else {
+                    sb.append("Usage: !listUsers <group_name> or !listUsers when inside a group prompt");
+                }
+                break;
+
+            case "listGroups":
+                if (parts.length == 1) {
+                    sb.append(handleListGroupsCommand());
+                } else {
+                    sb.append("Usage: !listGroups");
+                }
+                break;
+
             case "help":
                 sb.append(helpMenuString());
                 break;
@@ -236,6 +276,17 @@ public class ChatClient {
         // note: doesn't matter if it's empty
         System.out.println(sb.toString());
         System.out.flush();
+    }
+
+    private static List<String> completeCommand(String currentText) {
+        printWithPrompt("currentText=" + currentText + "\n\n\r");
+        List<String> possibleCompletion = new ArrayList<String>();
+        for (String command : POSSIBLE_COMMANDS) {
+            if (('!' + command).startsWith(currentText)) {
+                possibleCompletion.add('!' + command);
+            }
+        }
+        return possibleCompletion;
     }
 
     private static String helpMenuString() {
@@ -252,11 +303,13 @@ public class ChatClient {
                 .append(pad + "!delFromGroup <user_names...> <group_name>\n\r")
                 .append(pad + "!removeGroup <group_name>\n\r")
                 .append(pad + "!upload <filepaths...>: send files to either group or user\n\r")
+                .append(pad + "!listUsers <group>: list users on a certain group\n\r")
+                .append(pad + "!listGroups: list all groups\n\r")
                 .append(pad + "!help: Displays this help menu.");
         return sb.toString();
     }
 
-    public static void sendMessage(String text) throws IOException {
+    public static void sendTextMessage(String text) throws IOException {
         byte[] msg = MessageUtils.createTextMessage(username, group, text, "text/plain");
 
         if (group != null) {
@@ -267,6 +320,17 @@ public class ChatClient {
             // Handle direct messages
             channel.basicPublish("", recipient, null, msg);
         }
+    }
+
+    public static void createUser(String username) throws IOException {
+        //
+        // NOTE: If we change any of the properties of a queue
+        // that is already created that triggers a exception.
+        // TODO: Maybe we need to handle that, should we care?
+        //
+
+        channel.queueDeclare(username, false, false, false, null);
+        declareFileTransferQueue(username);
     }
 
     public static String createGroup(String groupName) throws IOException {
@@ -291,8 +355,7 @@ public class ChatClient {
             tempChannel.exchangeDeclarePassive(groupName);
             return true;
         } catch (AlreadyClosedException e) {
-            System.err.println("Channel already closed: " + e.getMessage());
-
+            printWithPrompt("ERROR: Channel already closed " + e.getMessage());
             return false;
         } catch (Exception e) {
             // The exception indicates that the exchange doesn't exist or another issue
@@ -340,9 +403,12 @@ public class ChatClient {
 
             // Bind the user's queue to the group exchange
             if (groupExists(groupName)) {
-                // DONE: We need to check if queue exist
+                // We check if queue exist, and assume that the file transfer queue also exists
+                // NOTE: is this right?
                 if (queueExists(queueName)) {
                     channel.queueBind(queueName, groupName, "");
+                    // Also bind to the file queue to the file exchager
+                    channel.queueBind(FILE_TRANSFER_PREFIX + queueName, FILE_TRANSFER_PREFIX + groupName, "");
                     return ("User '" + userName + "' added to group '" + groupName + "'.");
                 } else {
                     return ("User '" + userName + "' does not exist.");
@@ -355,12 +421,6 @@ public class ChatClient {
             return ("Error adding user '" + userName + "' to group '" + groupName + "'" + e.getMessage()
                     + e.getCause());
         }
-    }
-
-    public static void addUserToGroup2(String groupName, String who) throws IOException {
-        // Bind the user's queue to the fanout exchange
-        channel.queueBind(who, groupName, "");
-        System.out.println("User added to group '" + groupName + "'.");
     }
 
     public static void sendGroupMessage(String groupName, byte[] message) throws IOException {
@@ -396,7 +456,6 @@ public class ChatClient {
 
         while (connection == null) {
             currentHost = HOSTS[hostIndex];
-            rabbitMqApiUrl = "http://" + currentHost + ":15672/api"; // RabbitMQ
 
             if (DEBUG && hostIndex == 0) {
                 currentHost = "localhost";
@@ -411,7 +470,7 @@ public class ChatClient {
                     System.out.println("\nSwitching to the next host...");
                 }
             } catch (Exception e) {
-                System.out.println("\nFailed to connect to " + currentHost + ".");
+                System.out.println("\r\n\rFailed to connect to " + currentHost + ".");
             }
 
             // Switch to the next host
@@ -419,7 +478,7 @@ public class ChatClient {
         }
 
         loadingThread.interrupt();
-        System.out.println("\nConnected to " + currentHost + "!");
+        System.out.println("\n\rConnected to " + currentHost + "!");
         return connection;
     }
 
@@ -439,50 +498,6 @@ public class ChatClient {
 
     private static boolean isUserBoundToGroup(String groupName, String username) {
         return true;
-    }
-
-    private static boolean isUserBoundToGroup3(String groupName, String username) throws Exception {
-        String url = rabbitMqApiUrl + "/exchanges/%2F/" + groupName + "/bindings";
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Authorization",
-                        "Basic " + Base64.getEncoder()
-                                .encodeToString((RABBITMQ_USERNAME + ":" + RABBITMQ_PASSWORD).getBytes()))
-                .GET()
-                .build();
-
-        var httpClient = HttpClient.newHttpClient();
-        // Send the request and get the response
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        // Parse the JSON response manually
-        String jsonResponse = response.body();
-        System.out.println(jsonResponse);
-        return jsonResponse.contains("\"destination\":\"" + username + "\"");
-    }
-
-    private static boolean isUserBoundToGroup2(String groupName, String username) throws Exception {
-        String url = rabbitMqApiUrl + "/exchanges/%2F/" + groupName + "/bindings";
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setRequestMethod("GET");
-        String auth = RABBITMQ_USERNAME + ":" + RABBITMQ_PASSWORD;
-        String encodedAuth = java.util.Base64.getEncoder().encodeToString(auth.getBytes());
-        conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
-
-        BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        StringBuilder response = new StringBuilder();
-        String inputLine;
-
-        while ((inputLine = in.readLine()) != null) {
-            response.append(inputLine);
-        }
-        in.close();
-
-        // Parse the JSON response manually
-        String jsonResponse = response.toString();
-
-        return jsonResponse.contains("\"destination\":\"" + username + "\"");
     }
 
     private static String removeUserFromGroup(String groupName, String user) {
@@ -537,8 +552,7 @@ public class ChatClient {
             prompt = PROMPT_DEFAULT;
             // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
             // durable to true, we get IOException
-            channel.queueDeclare(username, false, false, false, null);
-            declareFileTransferQueue(username);
+            createUser(username);
 
             receiveMessageThread.start();
             receiveFileThread.start();
@@ -575,7 +589,7 @@ public class ChatClient {
                 } else if (input.startsWith("!")) {
                     handleCommand(input);
                 } else {
-                    sendMessage(input);
+                    sendTextMessage(input);
                 }
             }
             receiveMessageThread.interrupt();
@@ -599,6 +613,11 @@ public class ChatClient {
         }
     }
 
+    private static boolean isDelimiter(char c) {
+        return c == '-' || c == '/' || c == '!' || c == '@' || c == '#' || c == '.' || Character.isWhitespace(c);
+
+    }
+
     private static void deleteWord() {
         String user = editable_prompt_buffer.toString();
 
@@ -606,7 +625,7 @@ public class ChatClient {
             cursorPosition -= 1;
             editable_prompt_buffer.deleteCharAt(cursorPosition);
         }
-        while (cursorIsInBounds(-1) && !Character.isWhitespace(user.charAt(cursorPosition - 1))) {
+        while (cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
             editable_prompt_buffer.deleteCharAt(cursorPosition);
         }
@@ -619,7 +638,7 @@ public class ChatClient {
         while (cursorIsInBounds() && Character.isWhitespace(user.charAt(cursorPosition))) {
             cursorPosition += 1;
         }
-        while (cursorIsInBounds() && !Character.isWhitespace(user.charAt(cursorPosition))) {
+        while (cursorIsInBounds() && !isDelimiter(user.charAt(cursorPosition))) {
             cursorPosition += 1;
         }
         cursorSnapToInBounds();
@@ -631,7 +650,7 @@ public class ChatClient {
         while (cursorIsInBounds(-1) && Character.isWhitespace(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
         }
-        while (cursorIsInBounds(-1) && !Character.isWhitespace(user.charAt(cursorPosition - 1))) {
+        while (cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
         }
         cursorSnapToInBounds();
@@ -695,11 +714,36 @@ public class ChatClient {
         displayPrompt(sb, terminalWidth, terminalHeight);
         System.out.print(sb);
         System.out.flush();
-
+        List<String> completionPossibilities = null;
+        int completionIndex = 0;
+        String completionPreviousWord = null;
         while (chat_client_running) {
             sb.setLength(0);
             char c = (char) stdind_reader.read();
-            if (c == '\r' || c == '\n') {
+            // Reset the state for completion
+            // Both possibilities are close together on purpose
+            if (c != '\t') {
+                completionIndex = 0;
+                completionPossibilities = null;
+                completionPreviousWord = null;
+            }
+
+            if (c == '\t') {
+                // Handle Tab key for auto-completion
+                if (completionPreviousWord == null) {
+                    completionPreviousWord = editable_prompt_buffer.substring(0, cursorPosition);
+                }
+                if (completionPossibilities == null) {
+                    completionPossibilities = completeCommand(completionPreviousWord);
+                }
+                if (completionPossibilities != null && completionPossibilities.size() > 0) {
+                    completionIndex = (completionIndex + 1) % completionPossibilities.size();
+                    String completion = completionPossibilities.get(completionIndex);
+                    editable_prompt_buffer.setLength(0);
+                    editable_prompt_buffer.append(completion);
+                    cursorPosition = editable_prompt_buffer.length();
+                }
+            } else if (c == '\r' || c == '\n') {
                 // Move to next line && Move to beginning of next line
                 // Move cursor to the beginning of the line
                 System.out.print("\n\r" + "\033[G" + "\033[K");
@@ -718,17 +762,23 @@ public class ChatClient {
                 if (next == '[') {
                     next = (char) stdind_reader.read();
                     if (next == 'A') { // Up arrow
-                        historyPosition -= 1;
-                        historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                        editable_prompt_buffer.setLength(0);
-                        editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                        cursorPosition = editable_prompt_buffer.length();
-                    } else if (next == 'B') { // down arrow
-                        historyPosition += 1;
-                        historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                        editable_prompt_buffer.setLength(0);
-                        editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                        cursorPosition = editable_prompt_buffer.length();
+                        if (PROMPT_HISTORY.size() > 0) {
+                            historyPosition -= 1;
+                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                            editable_prompt_buffer.setLength(0);
+                            editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
+                            cursorPosition = editable_prompt_buffer.length();
+
+                        }
+
+                    } else if (next == 'B') { // Down arrow
+                        if (PROMPT_HISTORY.size() > 0) {
+                            historyPosition += 1;
+                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                            editable_prompt_buffer.setLength(0);
+                            editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
+                            cursorPosition = editable_prompt_buffer.length();
+                        }
                     } else if (next == 'C') { // Right arrow
                         moveCursor(1);
                     } else if (next == 'D') { // Left arrow
@@ -1078,21 +1128,129 @@ public class ChatClient {
         }
     }
 
-    // Change this to me
-    public static void receiveFiles2(String username) {
-        String queueName = FILE_TRANSFER_PREFIX + username;
-        new Thread(() -> {
-            try {
-                channel.basicConsume(queueName, true, (consumerTag, delivery) -> {
-                    byte[] fileContent = delivery.getBody();
+    public static List<String> apiGetExchangers() {
+        String username = "guest"; // RabbitMQ username
+        String password = "guest"; // RabbitMQ password
+        String vhost = "%2F"; // Virtual host, use "%2F" for the default vhost
 
-                    // Save the file
-                }, consumerTag -> {
-                });
-            } catch (IOException e) {
-                System.out.println("Error starting file receiver: " + e.getMessage());
+        try {
+
+            URL url = new URI("http://" + currentHost + ":" + RABBITMQ_PORT + "/api/exchanges/" + vhost).toURL();
+
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            // Set up basic authentication
+            String auth = username + ":" + password;
+            String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
+            conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+            conn.setRequestProperty("Content-Type", "application/json");
+
+            int responseCode = conn.getResponseCode();
+            // System.out.println("Response Code: " + responseCode);
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
             }
-        }).start();
+            in.close();
+
+            // Simple parsing to extract exchange names
+            List<String> exchangeNames = extractExchangeNames(response.toString());
+
+            String commaSeparatedNames = String.join(", ", exchangeNames);
+            return exchangeNames;
+
+        } catch (Exception e) {
+            if (DEBUG) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+    }
+
+    private static List<String> extractExchangeNames(String jsonResponse) {
+        List<String> names = new ArrayList<>();
+        int index = 0;
+        while ((index = jsonResponse.indexOf("\"name\":", index)) != -1) {
+            int startQuote = jsonResponse.indexOf("\"", index + 7);
+            int endQuote = jsonResponse.indexOf("\"", startQuote + 1);
+            if (startQuote != -1 && endQuote != -1) {
+                String name = jsonResponse.substring(startQuote + 1, endQuote);
+                // Filter out default exchanges and the default "" (nameless) exchange
+                // And also filter the transfer prefix exchangers
+                if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
+                    names.add(name);
+                }
+            }
+            index = endQuote;
+        }
+        return names;
+    }
+
+    public static List<String> apiGetQueuesBoundToExchange(String exchangeName) {
+        String username = "guest";
+        String password = "guest";
+        String vhost = "%2F"; // Virtual host, use "%2F" for the default vhost
+
+        try {
+            URL url = new URI(
+                    "http://" + currentHost + ":" + RABBITMQ_PORT + "/api/exchanges/" + vhost + "/" + exchangeName
+                            + "/bindings/source")
+                    .toURL();
+
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            // The most basic auth xD
+            String auth = username + ":" + password;
+            String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
+            conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+            conn.setRequestProperty("Content-Type", "application/json");
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
+
+            // Simple parsing to extract queue names
+            List<String> queueNames = extractQueueNames(response.toString());
+
+            return queueNames;
+
+        } catch (Exception e) {
+            if (DEBUG) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+    }
+
+    private static List<String> extractQueueNames(String jsonResponse) {
+        List<String> names = new ArrayList<>();
+        int index = 0;
+        String searchFor = "\"destination\"";
+        int searchForSize = searchFor.length();
+        while ((index = jsonResponse.indexOf(searchFor, index)) != -1) {
+            index = jsonResponse.indexOf(":", index + searchForSize);
+
+            int startIndex = jsonResponse.indexOf("\"", index);
+            int endIndex = jsonResponse.indexOf("\"", startIndex + 1);
+            if (endIndex != -1 && startIndex != -1) {
+                String queueName = jsonResponse.substring(startIndex + 1, endIndex);
+                names.add(queueName);
+            }
+            index = endIndex;
+        }
+        return names;
     }
 
 }
