@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 // import java.util.concurrent.atomic.AtomicInteger;
@@ -68,7 +69,8 @@ public class ChatClient {
     private static final String[] POSSIBLE_COMMANDS = {
             /* Etapa 2 */ "addGroup", "removeGroup", "addUser", "delFromGroup",
             /* Etapa 3 */ "upload",
-            /* Etapa 5 */ "listUsers", "listGroups",
+            /* Etapa 5 */ "listUsers", "listGroups", "listAllUsers",
+            /* TODO: Create the I am command, or whoami? */ "iam",
             /* Final ***/ "help"
     };
 
@@ -114,12 +116,28 @@ public class ChatClient {
         return true;
     }
 
+    // No Args we get all users
+    public static String handleListUsersCommand() {
+        List<String> names = apiGetAllQueues();
+        if (names == null || names.size() == 0) {
+            // Should never happen
+            return "No users exists yet.";
+        }
+        String commaSeparatedNames = String.join(", ", names);
+        return commaSeparatedNames;
+    }
+
     public static String handleListUsersCommand(String group) {
+        if (!groupExists(group)) {
+            return "Group \"" + group + "\"does not exist.";
+        }
+
         List<String> names = apiGetQueuesBoundToExchange(group);
         if (names == null || names.size() == 0) {
             return "No users added to group \"" + group + "\".";
         }
         String commaSeparatedNames = String.join(", ", names);
+
         return commaSeparatedNames;
     }
 
@@ -257,6 +275,14 @@ public class ChatClient {
                 }
                 break;
 
+            case "listAllUsers":
+                if (parts.length == 1) {
+                    sb.append(handleListUsersCommand());
+                } else {
+                    sb.append("Usage: !listAllUsers, no extra args");
+                }
+                break;
+
             case "listGroups":
                 if (parts.length == 1) {
                     sb.append(handleListGroupsCommand());
@@ -304,6 +330,7 @@ public class ChatClient {
                 .append(pad + "!upload <filepaths...>: send files to either group or user\n\r")
                 .append(pad + "!listUsers <group>: list users on a certain group\n\r")
                 .append(pad + "!listGroups: list all groups\n\r")
+                .append(pad + "!listAllUsers: list all users\n\r")
                 .append(pad + "!help: Displays this help menu.");
         return sb.toString();
     }
@@ -620,11 +647,13 @@ public class ChatClient {
     private static void deleteWord() {
         String user = editable_prompt_buffer.toString();
 
-        while (cursorIsInBounds(-1) && Character.isWhitespace(user.charAt(cursorPosition - 1))) {
+        boolean earlyStop = false;
+        while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
+            earlyStop = true;
             editable_prompt_buffer.deleteCharAt(cursorPosition);
         }
-        while (cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
+        while (!earlyStop && cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
             editable_prompt_buffer.deleteCharAt(cursorPosition);
         }
@@ -634,10 +663,12 @@ public class ChatClient {
     private static void moveFowardWord() throws IOException, InterruptedException {
         String user = editable_prompt_buffer.toString();
 
-        while (cursorIsInBounds() && Character.isWhitespace(user.charAt(cursorPosition))) {
+        boolean earlyStop = false;
+        while (cursorIsInBounds() && isDelimiter(user.charAt(cursorPosition))) {
+            earlyStop = true;
             cursorPosition += 1;
         }
-        while (cursorIsInBounds() && !isDelimiter(user.charAt(cursorPosition))) {
+        while (!earlyStop && cursorIsInBounds() && !isDelimiter(user.charAt(cursorPosition))) {
             cursorPosition += 1;
         }
         cursorSnapToInBounds();
@@ -646,10 +677,12 @@ public class ChatClient {
     private static void moveBackWord() throws IOException, InterruptedException {
         String user = editable_prompt_buffer.toString();
 
-        while (cursorIsInBounds(-1) && Character.isWhitespace(user.charAt(cursorPosition - 1))) {
+        boolean earlyStop = false;
+        while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
+            earlyStop = true;
             cursorPosition -= 1;
         }
-        while (cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
+        while (!earlyStop && cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
         }
         cursorSnapToInBounds();
@@ -1127,14 +1160,64 @@ public class ChatClient {
         }
     }
 
+    public static List<String> apiGetAllQueues() {
+        String username = "guest";
+        String password = "guest";
+        String vhost = "%2F";
+
+        try {
+            String key = "name";
+            URL url = new URI(
+                    "http://" + currentHost + ":" + RABBITMQ_PORT + "/api/queues/" + vhost + "?columns=" + key)
+                    .toURL();
+
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+
+            // Basic authentication
+            String auth = username + ":" + password;
+            String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
+            conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
+            conn.setRequestProperty("Content-Type", "application/json");
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
+            }
+            in.close();
+
+            List<String> exchangeNames = new ArrayList<String>();
+
+            for (String name : jsonExtractFromKey(response.toString(), key)) {
+                if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
+                    exchangeNames.add(name);
+                }
+            }
+            // return new ArrayList<>(Arrays.asList(response.toString()));
+            return exchangeNames;
+
+        } catch (Exception e) {
+            if (DEBUG) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+    }
+
     public static List<String> apiGetExchangers() {
         String username = "guest"; // RabbitMQ username
         String password = "guest"; // RabbitMQ password
         String vhost = "%2F"; // Virtual host, use "%2F" for the default vhost
 
+        String key = "name";
         try {
 
-            URL url = new URI("http://" + currentHost + ":" + RABBITMQ_PORT + "/api/exchanges/" + vhost).toURL();
+            URL url = new URI(
+                    "http://" + currentHost + ":" + RABBITMQ_PORT + "/api/exchanges/" + vhost + "?columns=" + key)
+                    .toURL();
 
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
@@ -1157,10 +1240,13 @@ public class ChatClient {
             }
             in.close();
 
-            // Simple parsing to extract exchange names
-            List<String> exchangeNames = extractExchangeNames(response.toString());
+            List<String> exchangeNames = new ArrayList<String>();
 
-            String commaSeparatedNames = String.join(", ", exchangeNames);
+            for (String name : jsonExtractFromKey(response.toString(), key)) {
+                if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
+                    exchangeNames.add(name);
+                }
+            }
             return exchangeNames;
 
         } catch (Exception e) {
@@ -1172,25 +1258,6 @@ public class ChatClient {
 
     }
 
-    private static List<String> extractExchangeNames(String jsonResponse) {
-        List<String> names = new ArrayList<>();
-        int index = 0;
-        while ((index = jsonResponse.indexOf("\"name\":", index)) != -1) {
-            int startQuote = jsonResponse.indexOf("\"", index + 7);
-            int endQuote = jsonResponse.indexOf("\"", startQuote + 1);
-            if (startQuote != -1 && endQuote != -1) {
-                String name = jsonResponse.substring(startQuote + 1, endQuote);
-                // Filter out default exchanges and the default "" (nameless) exchange
-                // And also filter the transfer prefix exchangers
-                if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
-                    names.add(name);
-                }
-            }
-            index = endQuote;
-        }
-        return names;
-    }
-
     public static List<String> apiGetQueuesBoundToExchange(String exchangeName) {
         String username = "guest";
         String password = "guest";
@@ -1198,9 +1265,11 @@ public class ChatClient {
 
         try {
             URL url = new URI(
-                    "http://" + currentHost + ":" + RABBITMQ_PORT + "/api/exchanges/" + vhost + "/" + exchangeName
-                            + "/bindings/source")
-                    .toURL();
+                    "http://" + currentHost + ":" + RABBITMQ_PORT
+                            + "/api/exchanges/" + vhost + "/" + exchangeName // get a specific exchanger
+                            + "/bindings/source" // list of bindings
+                            + "?columns=destination" // get just the column we need
+            ).toURL();
 
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
@@ -1221,7 +1290,7 @@ public class ChatClient {
             in.close();
 
             // Simple parsing to extract queue names
-            List<String> queueNames = extractQueueNames(response.toString());
+            List<String> queueNames = jsonExtractFromKey(response.toString(), "destination");
 
             return queueNames;
 
@@ -1233,10 +1302,10 @@ public class ChatClient {
         }
     }
 
-    private static List<String> extractQueueNames(String jsonResponse) {
+    private static List<String> jsonExtractFromKey(String jsonResponse, String key) {
         List<String> names = new ArrayList<>();
         int index = 0;
-        String searchFor = "\"destination\"";
+        String searchFor = "\"" + key + "\"";
         int searchForSize = searchFor.length();
         while ((index = jsonResponse.indexOf(searchFor, index)) != -1) {
             index = jsonResponse.indexOf(":", index + searchForSize);

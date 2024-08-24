@@ -297,3 +297,7 @@ ufs, amigos, familia
 ```
 
 Para implementar essas operações, deve-se usar a API HTTP de Gerenciamento do RabbitMQ: https://rawcdn.githack.com/rabbitmq/rabbitmq-management/v3.7.7/priv/www/api/index.html
+
+
+# Etapas Extra
+!listAllUsers
