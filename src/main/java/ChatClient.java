@@ -279,7 +279,6 @@ public class ChatClient {
     }
 
     private static List<String> completeCommand(String currentText) {
-        printWithPrompt("currentText=" + currentText + "\n\n\r");
         List<String> possibleCompletion = new ArrayList<String>();
         for (String command : POSSIBLE_COMMANDS) {
             if (('!' + command).startsWith(currentText)) {
