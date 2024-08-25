@@ -36,7 +36,7 @@ public class ChatClient {
     private static final String RABBITMQ_PORT = "15672"; // Default management plugin port
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
     private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
     private static final String SPECIAL_CHARS = "!#@";
 
@@ -160,7 +160,7 @@ public class ChatClient {
             return "File not found: " + filePath;
         }
         if (file.isDirectory()) {
-            return String.format("File \"%s\" is a directry.", filePath);
+            return String.format("File \"%s\" is a directory.", filePath);
         }
 
         String destination = (group != null) ? group : recipient;
@@ -869,10 +869,12 @@ public class ChatClient {
                 if (completionPreviousWord == null) {
                     completionStartWordIndex = getStartIndexOfWordUnderCursor();
                     completionPreviousWord = editable_prompt_buffer.substring(completionStartWordIndex, cursorPosition);
-                    printWithPrompt(
-                            "getWordUnderCursor = " + completionPreviousWord
-                                    + "size = " + completionPreviousWord.length()
-                                    + "\n\r");
+                    if (DEBUG) {
+                        printWithPrompt(
+                                "getWordUnderCursor = " + completionPreviousWord
+                                        + "size = " + completionPreviousWord.length()
+                                        + "\n\r");
+                    }
                 }
                 String checkForCompletion = editable_prompt_buffer.toString();
                 if (completionPossibilities == null) {
@@ -898,7 +900,6 @@ public class ChatClient {
                         for (String string : completeGroupChat(completionPreviousWord, "")) {
                             completionPossibilities.add(string);
                         }
-                        completionPossibilities.add("foda-se arrombado do caralho");
                     } else if (!checkForCompletion.contains(" ")) {
                         completionPossibilities = completeCommand(completionPreviousWord);
                     } else {
@@ -922,10 +923,6 @@ public class ChatClient {
                     // INVERT_COLOR.length(), completion);
                 }
             } else if (c == '\r' || c == '\n') {
-                printWithPrompt(new Boolean(modifyEnter).toString() + "\n\r");
-                // if (!modifyEnter && (lastChar != '\t'
-                // || (completionPossibilities != null && completionPossibilities.size() <= 1)))
-                // {
                 if (!modifyEnter) {
 
                     // Move to next line && Move to beginning of next line
