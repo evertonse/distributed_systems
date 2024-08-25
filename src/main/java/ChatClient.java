@@ -20,7 +20,16 @@ import java.util.concurrent.TimeoutException;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
 
+interface Command {
+    public String getName();
+
+    public String getHelp();
+
+    public String execute(String[] parts) throws IOException;
+}
+
 public class ChatClient {
+
     private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
     private static final String RABBITMQ_PORT = "15672"; // Default management plugin port
     private static final String RABBITMQ_USERNAME = "admin";
@@ -54,8 +63,7 @@ public class ChatClient {
             } else if (line.contains("!upload")) {
                 cr.possibilities = completeFilePath(wordUnderCursor);
                 cr.modifyEnter = true;
-            } else if (line.contains("!delFromGroup")
-                    || line.contains("!addUser")) {
+            } else if (line.contains("!delFromGroup") || line.contains("!addUser")) {
                 cr.possibilities = new ArrayList<String>();
                 for (String string : completeGroupChat(wordUnderCursor, "")) {
                     cr.possibilities.add(string);
@@ -63,8 +71,7 @@ public class ChatClient {
                 for (String string : completeUsersChat(wordUnderCursor, "")) {
                     cr.possibilities.add(string);
                 }
-            } else if (line.contains("!removeGroup")
-                    || line.contains("!listUsers")) {
+            } else if (line.contains("!removeGroup") || line.contains("!listUsers")) {
                 cr.possibilities = new ArrayList<String>();
                 for (String string : completeGroupChat(wordUnderCursor, "")) {
                     cr.possibilities.add(string);
@@ -85,6 +92,220 @@ public class ChatClient {
             /* TODO: Create the I am command, or whoami? */
             "whoami",
             /* Final ***/ "help"
+    };
+
+    private static final Command[] COMMANDS = {
+
+            new Command() {
+                public String getName() {
+                    return "addGroup";
+                }
+
+                public String getHelp() {
+                    return "!addGroup <group_name>: Creates a new group with the specified name.";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    if (parts.length > 1) {
+                        String groupName = parts[1];
+                        if (isValidGroupName(groupName)) {
+                            String info = createGroup(groupName);
+                            return (info);
+                        } else {
+                            return ("Group name can't be empty, neither have special characters" + SPECIAL_CHARS);
+                        }
+
+                    } else {
+                        return ("Usage: !addGroup <group_name>");
+                    }
+                }
+            },
+            new Command() {
+                public String getName() {
+                    return "removeGroup";
+                }
+
+                public String getHelp() {
+                    return "!removeGroup <group_name>";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length > 1) {
+                        String info = removeGroup(parts[1]);
+                        sb.append(info);
+                    } else {
+                        sb.append("Usage: !removeGroup <group_name>");
+                    }
+                    return sb.toString();
+                }
+            },
+            new Command() {
+                public String getName() {
+                    return "whoami";
+                }
+
+                public String getHelp() {
+                    return "!whoami: Prints your own name";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(username);
+                    return sb.toString();
+                }
+            },
+
+            new Command() {
+                public String getName() {
+                    return "addUser";
+                }
+
+                public String getHelp() {
+                    return "!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length > 2) {
+                        for (int i = 1; i < parts.length - 1; i++) {
+                            String msg = addUserToGroup(parts[parts.length - 1], parts[i]);
+                            sb.append(msg);
+                            if (i != parts.length - 2) {
+                                sb.append("\n\r");
+                            }
+                        }
+                    } else {
+                        sb.append("Usage: !addUser <user_name_first> .. <user_name_last> <group_name>");
+                    }
+                    return sb.toString();
+                }
+            },
+
+            new Command() {
+                public String getName() {
+                    return "delFromGroup";
+                }
+
+                public String getHelp() {
+                    return "!delFromGroup <user_names...> <group_name>";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length > 2) {
+                        for (int i = 1; i < parts.length - 1; i++) {
+                            String msg = removeUserFromGroup(parts[parts.length - 1], parts[i]);
+                            sb.append(msg);
+                            if (i != parts.length - 2) {
+                                sb.append("\n\r");
+                            }
+                        }
+                    } else {
+                        sb.append("Usage: !delFromGroup <user_name_first> .. <user_name_last> <group_name>");
+                    }
+                    return sb.toString();
+                }
+            },
+
+            new Command() {
+                public String getName() {
+                    return "upload";
+                }
+
+                public String getHelp() {
+                    return "!upload <filepaths...>: send files to either group or user";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length > 1) {
+                        for (int i = 1; i < parts.length; i++) {
+                            sb.append(handleUploadCommand(parts[i]));
+                            if (i != parts.length - 1) {
+                                sb.append("\n\r");
+                            }
+                        }
+                    } else {
+                        sb.append("Usage: !upload <filepath>");
+                    }
+                    return sb.toString();
+                }
+            },
+
+            new Command() {
+                public String getName() {
+                    return "listUsers";
+                }
+
+                public String getHelp() {
+                    return "!listUsers <group>: list users on a certain group";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length == 1 && group != null) {
+                        sb.append(handleListUsersCommand(group));
+                    } else if (parts.length == 2) {
+                        sb.append(handleListUsersCommand(parts[1]));
+                    } else {
+                        sb.append("Usage: !listUsers <group_name> or !listUsers when inside a group prompt");
+                    }
+                    return sb.toString();
+                }
+            },
+            new Command() {
+                public String getName() {
+                    return "listAllUsers";
+                }
+
+                public String getHelp() {
+                    return "!listAllUsers: list all users";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length == 1) {
+                        sb.append(handleListUsersCommand());
+                    } else {
+                        sb.append("Usage: !listAllUsers, no extra args");
+                    }
+                    return sb.toString();
+                }
+            },
+            new Command() {
+                public String getName() {
+                    return "listGroups";
+                }
+
+                public String getHelp() {
+                    return "!listGroups: list all groups";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    StringBuilder sb = new StringBuilder();
+                    if (parts.length == 1) {
+                        sb.append(handleListGroupsCommand());
+                    } else {
+                        sb.append("Usage: !listGroups");
+                    }
+                    return sb.toString();
+                }
+            },
+
+            new Command() {
+                public String getName() {
+                    return "help";
+                }
+
+                public String getHelp() {
+                    return "!help: Displays this help me";
+                }
+
+                public String execute(String[] parts) throws IOException {
+                    return helpMenuString();
+                }
+            }
     };
 
     private static boolean isValidUsername(String username) {
@@ -199,101 +420,17 @@ public class ChatClient {
         String[] parts = command.substring(1).split(" ");
         StringBuilder sb = new StringBuilder();
 
-        switch (parts[0]) {
-            case "addGroup":
-                if (parts.length > 1) {
-                    String groupName = parts[1];
-                    if (isValidGroupName(groupName)) {
-                        String info = createGroup(groupName);
-                        sb.append(info);
-                    } else {
-                        sb.append("Group name can't be empty, neither have special characters" + SPECIAL_CHARS);
-                    }
-
-                } else {
-                    sb.append("Usage: !addGroup <group_name>");
-                }
+        boolean matched = false;
+        for (Command cmd : COMMANDS) {
+            if (cmd.getName().equals(parts[0])) {
+                sb.append(cmd.execute(parts));
+                matched = true;
                 break;
-            case "removeGroup":
-                if (parts.length > 1) {
-                    String info = removeGroup(parts[1]);
-                    sb.append(info);
-                } else {
-                    sb.append("Usage: !removeGroup <group_name>");
-                }
-                break;
-            case "addUser":
-                if (parts.length > 2) {
-                    for (int i = 1; i < parts.length - 1; i++) {
-                        String msg = addUserToGroup(parts[parts.length - 1], parts[i]);
-                        sb.append(msg);
-                        if (i != parts.length - 2) {
-                            sb.append("\n\r");
-                        }
-                    }
-                } else {
-                    sb.append("Usage: !addUser <user_name_first> .. <user_name_last> <group_name>");
-                }
-                break;
-            case "delFromGroup":
-                if (parts.length > 2) {
-                    for (int i = 1; i < parts.length - 1; i++) {
-                        String msg = removeUserFromGroup(parts[parts.length - 1], parts[i]);
-                        sb.append(msg);
-                        if (i != parts.length - 2) {
-                            sb.append("\n\r");
-                        }
-                    }
-                } else {
-                    sb.append("Usage: !delFromGroup <user_name_first> .. <user_name_last> <group_name>");
-                }
-                break;
-            case "upload":
-                if (parts.length > 1) {
-                    for (int i = 1; i < parts.length; i++) {
-                        sb.append(handleUploadCommand(parts[i]));
-                        if (i != parts.length - 1) {
-                            sb.append("\n\r");
-                        }
-                    }
-                } else {
-                    sb.append("Usage: !upload <filepath>");
-                }
-                break;
-
-            case "listUsers":
-                if (parts.length == 1 && group != null) {
-                    sb.append(handleListUsersCommand(group));
-                } else if (parts.length == 2) {
-                    sb.append(handleListUsersCommand(parts[1]));
-                } else {
-                    sb.append("Usage: !listUsers <group_name> or !listUsers when inside a group prompt");
-                }
-                break;
-
-            case "listAllUsers":
-                if (parts.length == 1) {
-                    sb.append(handleListUsersCommand());
-                } else {
-                    sb.append("Usage: !listAllUsers, no extra args");
-                }
-                break;
-
-            case "listGroups":
-                if (parts.length == 1) {
-                    sb.append(handleListGroupsCommand());
-                } else {
-                    sb.append("Usage: !listGroups");
-                }
-                break;
-
-            case "help":
-                sb.append(helpMenuString());
-                break;
-            default:
-                sb.append("Unknown command: " + (parts[0] == "" ? "<empty>" : parts[0]) + "\n\r");
-                sb.append(helpMenuString());
-                break;
+            }
+        }
+        if (!matched) {
+            sb.append("Unknown command: " + (parts[0] == "" ? "<empty>" : parts[0]) + "\n\r");
+            sb.append("Use !help too see all commands available.");
         }
         // note: doesn't matter if it's empty
         System.out.println(sb.toString());
@@ -302,9 +439,10 @@ public class ChatClient {
 
     private static List<String> completeCommand(String currentText) {
         List<String> possibleCompletion = new ArrayList<String>();
-        for (String command : POSSIBLE_COMMANDS) {
-            if (('!' + command).startsWith(currentText)) {
-                possibleCompletion.add('!' + command);
+        for (Command cmd : COMMANDS) {
+            String cmdName = cmd.getName();
+            if (('!' + cmdName).startsWith(currentText)) {
+                possibleCompletion.add('!' + cmdName);
             }
         }
         return possibleCompletion;
@@ -366,20 +504,19 @@ public class ChatClient {
         StringBuilder sb = new StringBuilder();
         // NOTE: Need \n\r because the cursor might be changed on these lines
         // Effectively printing on the middle of column on that "new" line
+
         String pad = "    ";
-        sb.append("Available commands:\n\r")
-                .append(pad + "!addGroup <group_name>: Creates a new group with the specified name.\n\r")
-                .append(pad
-                        + "!addUser <user_name_first> .. <user_name_last> <group_name>: Adds the specified users to the given group.\n\r")
-                .append(pad + "@<user_name>: Set conversation to a certain user.\n\r")
-                .append(pad + "#<group>: Set conversation to a certain group.\n\r")
-                .append(pad + "!delFromGroup <user_names...> <group_name>\n\r")
-                .append(pad + "!removeGroup <group_name>\n\r")
-                .append(pad + "!upload <filepaths...>: send files to either group or user\n\r")
-                .append(pad + "!listUsers <group>: list users on a certain group\n\r")
-                .append(pad + "!listGroups: list all groups\n\r")
-                .append(pad + "!listAllUsers: list all users\n\r")
-                .append(pad + "!help: Displays this help menu.");
+
+        sb.append("Available commands:\n\r");
+        sb.append(pad + "@<user_name>: Set conversation to a certain user." + "\n\r");
+        sb.append(pad + "#<group>: Set conversation to a certain group." + "\n\r");
+        int len = COMMANDS.length;
+        for (int i = 0; i < len; i++) {
+            Command cmd = COMMANDS[i];
+            sb.append(pad + cmd.getHelp());
+            sb.append("\n\r");
+        }
+        sb.append("You can use 'TAB' to autocomplete (commands, filepaths, users, groups, etc ...).");
         return sb.toString();
     }
 
@@ -609,9 +746,11 @@ public class ChatClient {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
 
-            System.out
-                    .println(
-                            "Raw mode enabled.\n\rPress 'Crtl+c' to quit.\n\rType '!help' to see available commands after entering your username.");
+            System.out.println("Raw mode enabled.\n\r"
+                    + "Press 'Crtl+c' to quit.\n\r"
+                    + "Type '!help' to see available commands after entering your username.\n\r"
+                    + "You tab use 'TAB' to autocomplete.");
+
             terminal.toRawMode();
 
             terminal.setPrompt("User: ");
