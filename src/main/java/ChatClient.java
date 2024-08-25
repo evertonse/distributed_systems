@@ -49,6 +49,9 @@ public class ChatClient {
     private static final String MOVE_RIGHT = "\033[C"; // or "\033[A"
     private static final String MOVE_LEFT = "\033[D";
 
+    private static final String RESET_COLOR = "\033[0m"; // Reset to default color
+    private static final String INVERT_COLOR = "\033[7m"; // Invert foreground and background
+
     private static final String PROMPT_DEFAULT = ">>";
     private static final String FILES_DEFAULT_FOLDER = "assets";
 
@@ -155,6 +158,9 @@ public class ChatClient {
         File file = new File(filePath);
         if (!file.exists()) {
             return "File not found: " + filePath;
+        }
+        if (file.isDirectory()) {
+            return String.format("File \"%s\" is a directry.", filePath);
         }
 
         String destination = (group != null) ? group : recipient;
@@ -311,6 +317,58 @@ public class ChatClient {
                 possibleCompletion.add('!' + command);
             }
         }
+        return possibleCompletion;
+    }
+
+    private static List<String> completeUsersChat(String currentText, String prefix) {
+        // TODO: Cache this
+        List<String> possibleCompletion = new ArrayList<String>();
+        for (String users : apiGetAllQueues()) {
+            if ((prefix + users).startsWith(currentText)) {
+                possibleCompletion.add(prefix + users);
+            }
+        }
+        return possibleCompletion;
+    }
+
+    private static List<String> completeGroupChat(String currentText, String prefix) {
+        // TODO: Cache this
+        List<String> possibleCompletion = new ArrayList<String>();
+        for (String groups : apiGetExchangers()) {
+            if ((prefix + groups).startsWith(currentText)) {
+                possibleCompletion.add(prefix + groups);
+            }
+        }
+        return possibleCompletion;
+    }
+
+    public static List<String> completeFilePath(String currentText) {
+        List<String> possibleCompletion = new ArrayList<>();
+
+        File baseDir;
+        String prefix;
+
+        if (currentText.contains("/")) {
+            int lastSlashIndex = currentText.lastIndexOf('/');
+            String basePath = currentText.substring(0, lastSlashIndex + 1);
+            prefix = currentText.substring(lastSlashIndex + 1);
+            baseDir = new File(basePath.isEmpty() ? "." : basePath);
+        } else {
+            baseDir = new File(".");
+            prefix = currentText;
+        }
+
+        // Now the real work begins
+        File[] files = baseDir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (currentText.endsWith("/") || file.getName().startsWith(prefix)) {
+                    possibleCompletion.add(
+                            currentText + file.getName().substring(prefix.length()) + (file.isDirectory() ? "/" : ""));
+                }
+            }
+        }
+
         return possibleCompletion;
     }
 
@@ -641,7 +699,18 @@ public class ChatClient {
 
     private static boolean isDelimiter(char c) {
         return c == '-' || c == '/' || c == '!' || c == '@' || c == '#' || c == '.' || Character.isWhitespace(c);
+    }
 
+    private static boolean isDelimiter(char c, String ignore) {
+        for (char i : ignore.toCharArray()) {
+            if (c == i) {
+                return false;
+            }
+        }
+
+        boolean base = c == '-' || c == '/' || c == '!' || c == '@' || c == '#' || c == '.'
+                || Character.isWhitespace(c);
+        return base;
     }
 
     private static void deleteWord() {
@@ -658,6 +727,35 @@ public class ChatClient {
             editable_prompt_buffer.deleteCharAt(cursorPosition);
         }
         cursorSnapToInBounds();
+    }
+
+    private static boolean cursorIsInBounds(int cursorPosition, int i) {
+        if (cursorPosition + i > editable_prompt_buffer.length() - 1) {
+            return false;
+        } else if (cursorPosition + i < 0) {
+            return false;
+        }
+        return true;
+    }
+
+    private static int getStartIndexOfWordUnderCursor() {
+        String user = editable_prompt_buffer.toString();
+
+        boolean earlyStop = false;
+        String ignore = "!/.-#@";
+        int startPosition = cursorPosition;
+        // while (cursorIsInBounds(startPosition, -1) &&
+        // isDelimiter(user.charAt(startPosition - 1), ignore)) {
+        // startPosition -= 1;
+        // earlyStop = true;
+        // }
+        while (!earlyStop && cursorIsInBounds(startPosition, -1)
+                && !isDelimiter(user.charAt(startPosition - 1), ignore)) {
+            startPosition -= 1;
+        }
+        startPosition = Math.clamp(startPosition, 0, editable_prompt_buffer.length());
+
+        return startPosition;
     }
 
     private static void moveFowardWord() throws IOException, InterruptedException {
@@ -748,45 +846,100 @@ public class ChatClient {
         System.out.flush();
         List<String> completionPossibilities = null;
         int completionIndex = 0;
+        int completionStartWordIndex = 0;
         String completionPreviousWord = null;
+        char lastChar = '\0';
+        boolean modifyEnter = false;
         while (chat_client_running) {
             sb.setLength(0);
             char c = (char) stdind_reader.read();
             // Reset the state for completion
             // Both possibilities are close together on purpose
-            if (c != '\t') {
+            if (c != '\t' || (completionPossibilities != null && completionPossibilities.size() <= 1)) {
                 completionIndex = 0;
                 completionPossibilities = null;
                 completionPreviousWord = null;
+                if (lastChar != '\t') {
+                    modifyEnter = false;
+                }
             }
 
             if (c == '\t') {
                 // Handle Tab key for auto-completion
                 if (completionPreviousWord == null) {
-                    completionPreviousWord = editable_prompt_buffer.substring(0, cursorPosition);
+                    completionStartWordIndex = getStartIndexOfWordUnderCursor();
+                    completionPreviousWord = editable_prompt_buffer.substring(completionStartWordIndex, cursorPosition);
+                    printWithPrompt(
+                            "getWordUnderCursor = " + completionPreviousWord
+                                    + "size = " + completionPreviousWord.length()
+                                    + "\n\r");
                 }
+                String checkForCompletion = editable_prompt_buffer.toString();
                 if (completionPossibilities == null) {
-                    completionPossibilities = completeCommand(completionPreviousWord);
+                    if (checkForCompletion.startsWith("@")) {
+                        completionPossibilities = completeUsersChat(completionPreviousWord, "@");
+                    } else if (checkForCompletion.startsWith("#")) {
+                        completionPossibilities = completeGroupChat(completionPreviousWord, "#");
+                    } else if (checkForCompletion.contains("!upload")) {
+                        completionPossibilities = completeFilePath(completionPreviousWord);
+                        modifyEnter = true;
+                    } else if (checkForCompletion.contains("!delFromGroup")
+                            || checkForCompletion.contains("!addUser")) {
+                        completionPossibilities = new ArrayList<String>();
+                        for (String string : completeGroupChat(completionPreviousWord, "")) {
+                            completionPossibilities.add(string);
+                        }
+                        for (String string : completeUsersChat(completionPreviousWord, "")) {
+                            completionPossibilities.add(string);
+                        }
+                    } else if (checkForCompletion.contains("!removeGroup")
+                            || checkForCompletion.contains("!listUsers")) {
+                        completionPossibilities = new ArrayList<String>();
+                        for (String string : completeGroupChat(completionPreviousWord, "")) {
+                            completionPossibilities.add(string);
+                        }
+                        completionPossibilities.add("foda-se arrombado do caralho");
+                    } else if (!checkForCompletion.contains(" ")) {
+                        completionPossibilities = completeCommand(completionPreviousWord);
+                    } else {
+                    }
                 }
+
                 if (completionPossibilities != null && completionPossibilities.size() > 0) {
                     completionIndex = (completionIndex + 1) % completionPossibilities.size();
                     String completion = completionPossibilities.get(completionIndex);
-                    editable_prompt_buffer.setLength(0);
-                    editable_prompt_buffer.append(completion);
-                    cursorPosition = editable_prompt_buffer.length();
+                    editable_prompt_buffer.delete(completionStartWordIndex, cursorPosition);
+                    editable_prompt_buffer.insert(completionStartWordIndex, completion);
+                    cursorPosition = completionStartWordIndex + completion.length();
+                    editable_prompt_buffer.setLength(cursorPosition);
+
+                    // editable_prompt_buffer.insert(completionStartWordIndex, INVERT_COLOR);
+                    // editable_prompt_buffer.insert(completionStartWordIndex +
+                    // INVERT_COLOR.length(), completion);
+                    // cursorPosition = completionStartWordIndex + completion.length() +
+                    // INVERT_COLOR.length();
+                    // editable_prompt_buffer.insert(completionStartWordIndex +
+                    // INVERT_COLOR.length(), completion);
                 }
             } else if (c == '\r' || c == '\n') {
-                // Move to next line && Move to beginning of next line
-                // Move cursor to the beginning of the line
-                System.out.print("\n\r" + "\033[G" + "\033[K");
-                System.out.flush();
-                String result = editable_prompt_buffer.toString();
-                editable_prompt_buffer.setLength(0);
-                nlines = 0;
-                maxNlines = 0;
-                PROMPT_HISTORY.add(result);
-                historyPosition = PROMPT_HISTORY.size();
-                return result;
+                printWithPrompt(new Boolean(modifyEnter).toString() + "\n\r");
+                // if (!modifyEnter && (lastChar != '\t'
+                // || (completionPossibilities != null && completionPossibilities.size() <= 1)))
+                // {
+                if (!modifyEnter) {
+
+                    // Move to next line && Move to beginning of next line
+                    // Move cursor to the beginning of the line
+                    System.out.print("\n\r" + "\033[G" + "\033[K");
+                    System.out.flush();
+                    String result = editable_prompt_buffer.toString();
+                    editable_prompt_buffer.setLength(0);
+                    nlines = 0;
+                    maxNlines = 0;
+                    PROMPT_HISTORY.add(result);
+                    historyPosition = PROMPT_HISTORY.size();
+                    return result;
+                }
             } else if (c == 127 || c == 8) { // Backspace
                 deleteChar();
             } else if (c == 27) { // ESC
@@ -856,8 +1009,12 @@ public class ChatClient {
             displayPrompt(sb, terminalWidth, terminalHeight);
             System.out.print(sb);
             System.out.flush();
+
+            lastChar = c;
         }
+
         return "";
+
     }
 
     public static void moveCursorUp(StringBuilder sb, int rows) {
