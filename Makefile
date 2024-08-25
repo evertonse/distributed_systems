@@ -15,6 +15,9 @@ $(TARGET): $(SRC) pom.xml
 markdown:
 	watch --color -n 0.01 glow -p README.md
 
+zip:
+	zip -r SD.zip ./ -x **class
+
 
 clean:
 	@echo "Cleaning up..."
@@ -33,7 +36,4 @@ reset:
 	sudo rabbitmqctl start_app
 	sudo rabbitmq-plugins enable rabbitmq_management
 
-
-.PHONY: markdown run clean reset
-
-
+.PHONY: markdown run clean reset zip

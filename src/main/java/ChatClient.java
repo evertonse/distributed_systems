@@ -37,7 +37,6 @@ public class ChatClient {
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
     private static final boolean DEBUG = false;
-    private static final List<String> PROMPT_HISTORY = new ArrayList<String>();
     private static final String SPECIAL_CHARS = "!#@";
 
     private static boolean chat_client_running = false;
@@ -60,14 +59,46 @@ public class ChatClient {
     private static String username;
     private static String recipient;
     private static String group;
-    private static String prompt;
     private static int cursorPosition = 0;
     private static int historyPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
-    private static StringBuilder editable_prompt_buffer = new StringBuilder();
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static String currentHost = HOSTS[0];
     private static final int CONNECTION_TIMEOUT = 5000;
+
+    private static final PromptTerminal terminal = new PromptTerminal(new CompletionProvider() {
+        public CompletionResult getCompletionPossibilities(String line, String wordUnderCursor) {
+            CompletionResult cr = new CompletionResult();
+            if (line.startsWith("@")) {
+                cr.possibilities = completeUsersChat(wordUnderCursor, "@");
+            } else if (line.startsWith("#")) {
+                cr.possibilities = completeGroupChat(wordUnderCursor, "#");
+            } else if (line.contains("!upload")) {
+                cr.possibilities = completeFilePath(wordUnderCursor);
+                cr.modifyEnter = true;
+            } else if (line.contains("!delFromGroup")
+                    || line.contains("!addUser")) {
+                cr.possibilities = new ArrayList<String>();
+                for (String string : completeGroupChat(wordUnderCursor, "")) {
+                    cr.possibilities.add(string);
+                }
+                for (String string : completeUsersChat(wordUnderCursor, "")) {
+                    cr.possibilities.add(string);
+                }
+            } else if (line.contains("!removeGroup")
+                    || line.contains("!listUsers")) {
+                cr.possibilities = new ArrayList<String>();
+                for (String string : completeGroupChat(wordUnderCursor, "")) {
+                    cr.possibilities.add(string);
+                }
+            } else if (!line.contains(" ")) {
+                cr.possibilities = completeCommand(wordUnderCursor);
+            } else {
+            }
+            return cr;
+        }
+
+    });
 
     private static final String[] POSSIBLE_COMMANDS = {
             /* Etapa 2 */ "addGroup", "removeGroup", "addUser", "delFromGroup",
@@ -76,24 +107,6 @@ public class ChatClient {
             /* TODO: Create the I am command, or whoami? */ "iam",
             /* Final ***/ "help"
     };
-
-    public static void clearTerminal() {
-        // Clear the screen
-        System.out.print("\033[H\033[2J");
-        // Move the cursor to the bottom of the terminal
-        System.out.print("\033[999B\r");
-        System.out.flush();
-    }
-
-    public static void setResizeHandler() {
-        // Setting lê handler for SIGWINCH (window change signal)
-        Signal.handle(new Signal("WINCH"), new SignalHandler() {
-            @Override
-            public void handle(Signal sig) {
-                updateNlines();
-            }
-        });
-    }
 
     private static boolean isValidUsername(String username) {
         if (username == "" || username.contains(" ")) {
@@ -172,7 +185,7 @@ public class ChatClient {
                 try {
                     sendFileMessage(file);
                 } catch (IOException e) {
-                    printWithPrompt("Failed to upload the file: " + e.getMessage());
+                    terminal.print("Failed to upload the file: " + e.getMessage());
                     e.printStackTrace();
                 }
             }).start();
@@ -187,14 +200,14 @@ public class ChatClient {
 
         if (group != null) {
             sendGroupMessage(FILE_TRANSFER_PREFIX + group, msg);
-            printWithPrompt(String.format("Arquivo \" %s\" foi enviado para #%s.\n\r", file.toString(), group));
+            terminal.print(String.format("Arquivo \" %s\" foi enviado para #%s.\n\r", file.toString(), group));
         } else if (recipient != null) {
             // Send to individual recipient
             String whereTo = FILE_TRANSFER_PREFIX + recipient;
             channel.basicPublish("", whereTo, null, msg);
-            printWithPrompt(String.format("Arquivo \" %s\" foi enviado para @%s.\n\r", file.toString(), recipient));
+            terminal.print(String.format("Arquivo \" %s\" foi enviado para @%s.\n\r", file.toString(), recipient));
         } else {
-            printWithPrompt("No recipient or group selected. Please select a recipient or group first.\n\r");
+            terminal.print("No recipient or group selected. Please select a recipient or group first.\n\r");
         }
     }
 
@@ -439,7 +452,7 @@ public class ChatClient {
             tempChannel.exchangeDeclarePassive(groupName);
             return true;
         } catch (AlreadyClosedException e) {
-            printWithPrompt("ERROR: Channel already closed " + e.getMessage());
+            terminal.print("ERROR: Channel already closed " + e.getMessage());
             return false;
         } catch (Exception e) {
             // The exception indicates that the exchange doesn't exist or another issue
@@ -604,7 +617,7 @@ public class ChatClient {
 
     public static void main(String[] args) throws IOException, TimeoutException {
 
-        clearTerminal();
+        terminal.clear();
 
         ConnectionFactory factory = new ConnectionFactory();
         factory.setUsername(RABBITMQ_USERNAME);
@@ -618,22 +631,23 @@ public class ChatClient {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
             chat_client_running = true;
-            setResizeHandler();
 
             System.out
                     .println(
                             "Raw mode enabled.\n\rPress 'Crtl+c' to quit.\n\rType '!help' to see available commands after entering your username.");
-            setTerminalToRawMode();
+            terminal.toRawMode();
 
-            prompt = "User: ";
-            username = readLine();
+            terminal.setPrompt("User: ");
+            username = terminal.readLine();
             while (chat_client_running && !isValidUsername(username)) {
                 System.out.println(
                         "Username can't contain spaces, special characters (" + SPECIAL_CHARS
                                 + "),  neither be empty.");
-                username = readLine();
+                username = terminal.readLine();
             }
-            prompt = PROMPT_DEFAULT;
+
+            terminal.enableCompletion();
+            terminal.setPrompt(PROMPT_DEFAULT);
             // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
             // durable to true, we get IOException
             createUser(username);
@@ -643,11 +657,11 @@ public class ChatClient {
 
             while (chat_client_running) {
                 if (group != null) {
-                    prompt = "#" + group + ">> ";
+                    terminal.setPrompt("#" + group + ">> ");
                 } else if (recipient != null) {
-                    prompt = "@" + recipient + ">> ";
+                    terminal.setPrompt("@" + recipient + ">> ");
                 } else {
-                    prompt = PROMPT_DEFAULT;
+                    terminal.setPrompt(PROMPT_DEFAULT);
                 }
 
                 //
@@ -658,7 +672,7 @@ public class ChatClient {
                 // AWS
                 //
                 // updateTerminalSizeThread.start();
-                String input = readLine();
+                String input = terminal.readLine();
 
                 if (input.startsWith("@")) {
                     recipient = input.substring(1);
@@ -681,7 +695,7 @@ public class ChatClient {
         } catch (IOException | InterruptedException | TimeoutException e) {
             System.out.println("\rFailed to connect: " + e);
         } finally {
-            restoreTerminal();
+            terminal.toCookedMode();
             channel.close();
             // NOTE(excyber): important to make sure threads doesn't hang
             // closing the connection already closes the channel I think, because
@@ -711,486 +725,6 @@ public class ChatClient {
         boolean base = c == '-' || c == '/' || c == '!' || c == '@' || c == '#' || c == '.'
                 || Character.isWhitespace(c);
         return base;
-    }
-
-    private static void deleteWord() {
-        String user = editable_prompt_buffer.toString();
-
-        boolean earlyStop = false;
-        while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
-            cursorPosition -= 1;
-            earlyStop = true;
-            editable_prompt_buffer.deleteCharAt(cursorPosition);
-        }
-        while (!earlyStop && cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
-            cursorPosition -= 1;
-            editable_prompt_buffer.deleteCharAt(cursorPosition);
-        }
-        cursorSnapToInBounds();
-    }
-
-    private static boolean cursorIsInBounds(int cursorPosition, int i) {
-        if (cursorPosition + i > editable_prompt_buffer.length() - 1) {
-            return false;
-        } else if (cursorPosition + i < 0) {
-            return false;
-        }
-        return true;
-    }
-
-    private static int getStartIndexOfWordUnderCursor() {
-        String user = editable_prompt_buffer.toString();
-
-        boolean earlyStop = false;
-        String ignore = "!/.-#@";
-        int startPosition = cursorPosition;
-        // while (cursorIsInBounds(startPosition, -1) &&
-        // isDelimiter(user.charAt(startPosition - 1), ignore)) {
-        // startPosition -= 1;
-        // earlyStop = true;
-        // }
-        while (!earlyStop && cursorIsInBounds(startPosition, -1)
-                && !isDelimiter(user.charAt(startPosition - 1), ignore)) {
-            startPosition -= 1;
-        }
-        startPosition = Math.clamp(startPosition, 0, editable_prompt_buffer.length());
-
-        return startPosition;
-    }
-
-    private static void moveFowardWord() throws IOException, InterruptedException {
-        String user = editable_prompt_buffer.toString();
-
-        boolean earlyStop = false;
-        while (cursorIsInBounds() && isDelimiter(user.charAt(cursorPosition))) {
-            earlyStop = true;
-            cursorPosition += 1;
-        }
-        while (!earlyStop && cursorIsInBounds() && !isDelimiter(user.charAt(cursorPosition))) {
-            cursorPosition += 1;
-        }
-        cursorSnapToInBounds();
-    }
-
-    private static void moveBackWord() throws IOException, InterruptedException {
-        String user = editable_prompt_buffer.toString();
-
-        boolean earlyStop = false;
-        while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
-            earlyStop = true;
-            cursorPosition -= 1;
-        }
-        while (!earlyStop && cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
-            cursorPosition -= 1;
-        }
-        cursorSnapToInBounds();
-    }
-
-    private static void cursorSnapToInBounds() {
-        if (cursorPosition > editable_prompt_buffer.length() - 1) {
-            cursorPosition = editable_prompt_buffer.length();
-        }
-
-        else if (cursorPosition < 0) {
-            cursorPosition = 0;
-        }
-    }
-
-    private static boolean cursorIsInBounds() {
-        return cursorIsInBounds(0);
-    }
-
-    private static boolean cursorIsInBounds(int i) {
-        if (cursorPosition + i > editable_prompt_buffer.length() - 1) {
-            return false;
-        } else if (cursorPosition + i < 0) {
-            return false;
-        }
-        return true;
-    }
-
-    private static void moveCursor(int amount) {
-        cursorPosition += amount;
-        if (cursorPosition > editable_prompt_buffer.length() - 1) {
-            cursorPosition = editable_prompt_buffer.length();
-        }
-
-        else if (cursorPosition < 0) {
-            cursorPosition = 0;
-        }
-    }
-
-    private static void deleteChar() {
-        if (cursorPosition > 0) {
-            editable_prompt_buffer.deleteCharAt(--cursorPosition);
-        }
-    }
-
-    // DONE: previous command with arrow up
-    // TODO: autocomplete with TAB
-    // TODO: Terminal is overriding previous messages when terminal height increases
-
-    static Integer nlines = 0;
-    static Integer maxNlines = 0;
-    static Integer terminalWidth = 0;
-    static Integer terminalHeight = 0;
-
-    private static String readLine() throws IOException, InterruptedException {
-        cursorPosition = 0;
-        StringBuilder sb = new StringBuilder();
-
-        updateNlines();
-        clearPrompt(sb);
-        displayPrompt(sb, terminalWidth, terminalHeight);
-        System.out.print(sb);
-        System.out.flush();
-        List<String> completionPossibilities = null;
-        int completionIndex = 0;
-        int completionStartWordIndex = 0;
-        String completionPreviousWord = null;
-        char lastChar = '\0';
-        boolean modifyEnter = false;
-        while (chat_client_running) {
-            sb.setLength(0);
-            char c = (char) stdind_reader.read();
-            // Reset the state for completion
-            // Both possibilities are close together on purpose
-            if (c != '\t' || (completionPossibilities != null && completionPossibilities.size() <= 1)) {
-                completionIndex = 0;
-                completionPossibilities = null;
-                completionPreviousWord = null;
-                if (lastChar != '\t') {
-                    modifyEnter = false;
-                }
-            }
-
-            if (c == '\t') {
-                // Handle Tab key for auto-completion
-                if (completionPreviousWord == null) {
-                    completionStartWordIndex = getStartIndexOfWordUnderCursor();
-                    completionPreviousWord = editable_prompt_buffer.substring(completionStartWordIndex, cursorPosition);
-                    if (DEBUG) {
-                        printWithPrompt(
-                                "getWordUnderCursor = " + completionPreviousWord
-                                        + "size = " + completionPreviousWord.length()
-                                        + "\n\r");
-                    }
-                }
-                String checkForCompletion = editable_prompt_buffer.toString();
-                if (completionPossibilities == null) {
-                    if (checkForCompletion.startsWith("@")) {
-                        completionPossibilities = completeUsersChat(completionPreviousWord, "@");
-                    } else if (checkForCompletion.startsWith("#")) {
-                        completionPossibilities = completeGroupChat(completionPreviousWord, "#");
-                    } else if (checkForCompletion.contains("!upload")) {
-                        completionPossibilities = completeFilePath(completionPreviousWord);
-                        modifyEnter = true;
-                    } else if (checkForCompletion.contains("!delFromGroup")
-                            || checkForCompletion.contains("!addUser")) {
-                        completionPossibilities = new ArrayList<String>();
-                        for (String string : completeGroupChat(completionPreviousWord, "")) {
-                            completionPossibilities.add(string);
-                        }
-                        for (String string : completeUsersChat(completionPreviousWord, "")) {
-                            completionPossibilities.add(string);
-                        }
-                    } else if (checkForCompletion.contains("!removeGroup")
-                            || checkForCompletion.contains("!listUsers")) {
-                        completionPossibilities = new ArrayList<String>();
-                        for (String string : completeGroupChat(completionPreviousWord, "")) {
-                            completionPossibilities.add(string);
-                        }
-                    } else if (!checkForCompletion.contains(" ")) {
-                        completionPossibilities = completeCommand(completionPreviousWord);
-                    } else {
-                    }
-                }
-
-                if (completionPossibilities != null && completionPossibilities.size() > 0) {
-                    completionIndex = (completionIndex + 1) % completionPossibilities.size();
-                    String completion = completionPossibilities.get(completionIndex);
-                    editable_prompt_buffer.delete(completionStartWordIndex, cursorPosition);
-                    editable_prompt_buffer.insert(completionStartWordIndex, completion);
-                    cursorPosition = completionStartWordIndex + completion.length();
-                    editable_prompt_buffer.setLength(cursorPosition);
-
-                    // editable_prompt_buffer.insert(completionStartWordIndex, INVERT_COLOR);
-                    // editable_prompt_buffer.insert(completionStartWordIndex +
-                    // INVERT_COLOR.length(), completion);
-                    // cursorPosition = completionStartWordIndex + completion.length() +
-                    // INVERT_COLOR.length();
-                    // editable_prompt_buffer.insert(completionStartWordIndex +
-                    // INVERT_COLOR.length(), completion);
-                }
-            } else if (c == '\r' || c == '\n') {
-                if (!modifyEnter) {
-
-                    // Move to next line && Move to beginning of next line
-                    // Move cursor to the beginning of the line
-                    System.out.print("\n\r" + "\033[G" + "\033[K");
-                    System.out.flush();
-                    String result = editable_prompt_buffer.toString();
-                    editable_prompt_buffer.setLength(0);
-                    nlines = 0;
-                    maxNlines = 0;
-                    PROMPT_HISTORY.add(result);
-                    historyPosition = PROMPT_HISTORY.size();
-                    return result;
-                }
-            } else if (c == 127 || c == 8) { // Backspace
-                deleteChar();
-            } else if (c == 27) { // ESC
-                char next = (char) stdind_reader.read();
-                if (next == '[') {
-                    next = (char) stdind_reader.read();
-                    if (next == 'A') { // Up arrow
-                        if (PROMPT_HISTORY.size() > 0) {
-                            historyPosition -= 1;
-                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                            editable_prompt_buffer.setLength(0);
-                            editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                            cursorPosition = editable_prompt_buffer.length();
-
-                        }
-
-                    } else if (next == 'B') { // Down arrow
-                        if (PROMPT_HISTORY.size() > 0) {
-                            historyPosition += 1;
-                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                            editable_prompt_buffer.setLength(0);
-                            editable_prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                            cursorPosition = editable_prompt_buffer.length();
-                        }
-                    } else if (next == 'C') { // Right arrow
-                        moveCursor(1);
-                    } else if (next == 'D') { // Left arrow
-                        moveCursor(-1);
-                    } else if (next == '1') { // not a direction
-                        next = (char) stdind_reader.read();
-                        if (next == ';') { // \u001B[1;5D
-                            next = (char) stdind_reader.read();
-                            if (next == '5') {
-                                next = (char) stdind_reader.read();
-                                if (next == 'C') { // Right arrow
-                                    moveFowardWord();
-                                } else if (next == 'D') { // Left arrow
-                                    moveBackWord();
-                                }
-                            }
-                        }
-                    }
-
-                }
-            } else if (c >= 32 && c < 127) { // Printable ASCII characters
-                editable_prompt_buffer.insert(cursorPosition++, c);
-                // if (cursorPosition == editable_prompt_buffer.length()) {
-                // System.out.print(c);
-                // } else {
-                //
-                // System.out.print(SAVE_CURSOR);
-                // System.out.print("\033[K"); // Clear the line from the cursor to the end
-                // // System.out.print(editable_prompt_buffer.substring(cursorPosition - 1));
-                // System.out.print(RESTORE_CURSOR); // Clear the line from the cursor to the
-                // System.out.print(MOVE_RIGHT); // Move cursor right
-                // }
-            } else if (c == 23) { // Ctrl+W
-                deleteWord();
-            } else if (c == 3) { // Ctrl+C
-                System.out.print("\r\n");
-                System.out.println("Ctrl + C detected exiting...");
-                chat_client_running = false;
-                return "";
-            }
-            updateNlines();
-            clearPrompt(sb);
-            displayPrompt(sb, terminalWidth, terminalHeight);
-            System.out.print(sb);
-            System.out.flush();
-
-            lastChar = c;
-        }
-
-        return "";
-
-    }
-
-    public static void moveCursorUp(StringBuilder sb, int rows) {
-        if (rows > 0) {
-            // ANSI escape code to move the cursor up by the specified number of rows
-            sb.append("\033[" + rows + "A");
-        }
-    }
-
-    public static void setCursorColumn(StringBuilder sb, int column) {
-        sb.append(String.format("\033[%dG", column));
-    }
-
-    public static void setCursorRow(int row) {
-        // System.out.print(String.format("\033[%dd", row));
-        System.out.print("\033[" + row + ";1H"); // Move cursor to the last row, column 1
-
-    }
-
-    // - Position the Cursor:
-    // \033[<L>;<C>H Or \033[<L>;<C>f
-    public static void setCursorPosition(int row, int column) {
-        // \033 is the ESC character in octal
-        System.out.print(String.format("\033[%d;%dH", row, column));
-    }
-
-    public static void updateTerminalSize() {
-        try {
-            int[] size = getTerminalSize();
-            terminalHeight = size[0];
-            terminalWidth = size[1];
-        } catch (IOException | InterruptedException e) {
-            System.out.println("\rFailed to update terminal size: " + e.getMessage());
-            restoreTerminal();
-            System.out.println("Goodbye :)");
-            System.exit(69);
-        }
-    }
-
-    public static void updateNlines() {
-        updateTerminalSize();
-        if (prompt == null || editable_prompt_buffer == null) {
-            return;
-        }
-        int wholePromptLength = prompt.length() + editable_prompt_buffer.length();
-        int newNlines = (wholePromptLength - 1) / (terminalWidth);
-        maxNlines = Math.max(newNlines, maxNlines);
-        nlines = newNlines;
-    }
-
-    public static void clearPrompt(StringBuilder operations) {
-        updateNlines();
-        operations.append("\033[" + 9999 + "B");
-        // "\033[99999;%0H"
-        operations.append("\033[G"); // Move cursor to the beginning of the line
-        operations.append("\033[K"); // Clear the line from the cursor to the end
-        // for (int i = 0; i < maxNlines; i++) {
-        for (int i = 0; i < maxNlines; i++) {
-            operations.append("\033[A"); // Move cursor up one line
-            operations.append("\033[G"); // Move cursor to the beginning of the line
-            operations.append("\033[K"); // Clear the line from the cursor to the end
-        }
-        boolean keep_promt_height_at_minimum_possible = false;
-        if (keep_promt_height_at_minimum_possible) {
-            operations.append("\033[" + 9999 + "B");
-            for (int i = 0; i < nlines; i++) {
-                operations.append("\033[A"); // Move cursor up one line
-            }
-        }
-    }
-
-    public static void updatePromptCursor(StringBuilder sb, int terminalWidth, int terminalHeight) {
-        if (true) {
-            return;
-        }
-
-        updateNlines();
-        int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
-        // XXX: Column is wrong
-        int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
-
-        // System.out.println(" column = " + column
-        // + " terminalWidth = " + terminalWidth);
-        // + " row = " + row
-        // int manyLefts = editable_prompt_buffer.length() - cursorPosition;
-        // for (int i = 0; i < manyLefts; i++) {
-        // // sb.append("\033[D"); // Move cursor left
-        // }
-        // assert row > 0;
-        moveCursorUp(sb, row);
-        if (column == 1 && row >= 0) {
-            setCursorColumn(sb, terminalWidth + 1);
-            sb.append(editable_prompt_buffer.toString().charAt(cursorPosition)); // Move cursor right
-            // sb.append("\033[C"); // Move cursor right
-        } else {
-            setCursorColumn(sb, column);
-        }
-        // System.out.println(sb.toString() + row + " : " + column);
-    }
-
-    // DONE: See if the prompt needs to stay down, or if keeping it up is fine
-    // https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html
-    public static void displayPrompt(StringBuilder sb, int terminalWidth, int terminalHeight) {
-        // DONE: Clear old lines when we delete something
-        updateNlines();
-
-        int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
-        String user = editable_prompt_buffer.toString();
-        // if (user.length() > ("" + column).length()) {
-        // user = user.substring(0, user.length() - ("" + column).length()) + column;
-        //
-        // }
-
-        sb.append("\033[G" + "\033[K");
-        sb.append(prompt + user.substring(0, cursorPosition));
-        sb.append(SAVE_CURSOR);
-
-        sb.append(user.substring(cursorPosition, user.length()));
-        sb.append(RESTORE_CURSOR);
-        if (column == 1) {
-            sb.append(user.charAt(cursorPosition - 1));
-
-        }
-    }
-
-    // System.out.print("\033[2J"); // Clear the screen
-    private static String[] ttyConfig;
-
-    private static String stty(String args) throws IOException, InterruptedException {
-        String[] cmd = { "/bin/sh", "-c", "stty " + args + " < /dev/tty" };
-
-        Process p = Runtime.getRuntime().exec(cmd);
-        p.waitFor();
-
-        byte[] output = p.getInputStream().readAllBytes();
-        return new String(output).trim();
-    }
-
-    private static void setTerminalToRawMode() throws IOException, InterruptedException {
-        // Runtime.getRuntime().addShutdownHook(new
-        // Thread(ChatClient::restoreTerminal));
-        ttyConfig = stty("-g").split(" ");
-        stty("raw -echo");
-    }
-
-    private static void restoreTerminal() {
-        try {
-            if (ttyConfig != null) {
-                stty(String.join(" ", ttyConfig));
-            }
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-        }
-
-        System.out.println("\nTerminal has been restored to 'cooked' mode.");
-    }
-
-    private static int getTerminalWidth() throws IOException, InterruptedException {
-        String size = stty("size");
-        String[] dimensions = size.split(" ");
-        return Integer.parseInt(dimensions[1]); // [1] is the number of columns
-    }
-
-    private static int[] getTerminalSize() throws IOException, InterruptedException {
-        String size = stty("size");
-        String[] dimensions = size.split(" ");
-        return new int[] { Integer.parseInt(dimensions[0]), Integer.parseInt(dimensions[1]) }; // [1] is the number of
-    }
-
-    // Function to move the cursor to the last row
-    private static void moveCursorToLastRow(int terminalHeight) {
-        System.out.print("\033[" + terminalHeight + ";1H"); // Move cursor to the last row, column 1
-        System.out.flush();
-    }
-
-    private static int getTerminalHeight() throws IOException, InterruptedException {
-        String size = stty("size");
-        String[] dimensions = size.split(" ");
-        return Integer.parseInt(dimensions[0]);
     }
 
     // TODO: Maybe put a delay for readmessages, for when you're receiving too many
@@ -1226,7 +760,7 @@ public class ChatClient {
 
             String timestamp = String.format("%s às %s", date, hour);
 
-            printWithPrompt(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
+            terminal.print(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
         };
 
         try {
@@ -1238,27 +772,9 @@ public class ChatClient {
         }
     }
 
-    private static void printWithPrompt(String text) {
-        updateNlines();
-        StringBuilder sb = new StringBuilder();
-        sb.append("\033[G" + "\033[K");
-        sb.append(text);
-        for (int i = 0; i < maxNlines; i++) {
-            sb.append("\n"); // Move cursor up one line
-        }
-
-        for (int i = 0; i < maxNlines; i++) {
-            sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
-        }
-
-        displayPrompt(sb, terminalWidth, terminalHeight);
-        System.out.print(sb.toString());
-        System.out.flush();
-    }
-
     public static void saveReceivedFile(String filePath, byte[] fileContentBytes) throws IOException {
         Path path = Paths.get(filePath);
-        printWithPrompt(filePath);
+        terminal.print(filePath);
         Path parentDir = path.getParent();
 
         // Ensure the parent directories exist
@@ -1291,7 +807,7 @@ public class ChatClient {
                 hour = msg.getHour();
                 date = msg.getDate();
             } catch (Exception e) {
-                printWithPrompt("Failed to deserialize message: " + e.getMessage());
+                terminal.print("Failed to deserialize message: " + e.getMessage());
                 return;
             }
             String filePath = FILES_DEFAULT_FOLDER + '/' + String.format(
@@ -1301,7 +817,7 @@ public class ChatClient {
 
             saveReceivedFile(filePath, fileContentBytes);
             String timestamp = String.format("%s às %s", date, hour);
-            printWithPrompt(String.format("(%s) Arquivo \"%s\" recebido de %s.\n", timestamp, fileName, sender));
+            terminal.print(String.format("(%s) Arquivo \"%s\" recebido de %s.\n", timestamp, fileName, sender));
         };
 
         try {
@@ -1474,5 +990,4 @@ public class ChatClient {
         }
         return names;
     }
-
 }
