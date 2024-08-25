@@ -21,8 +21,8 @@ class CompletionResult {
     }
 
     public CompletionResult() {
-    }
 
+    }
 }
 
 interface CompletionProvider {
@@ -32,14 +32,18 @@ interface CompletionProvider {
 public class PromptTerminal {
 
     private static final String SPECIAL_CHARS = "!#@";
-    private static final String SAVE_CURSOR = "\u001B[s"; // or "\0337"
-    private static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
-    private static final String MOVE_TO_START_AND_CLEAR = "\r\u001B[K";
-    private static final String MOVE_UP_ONE_LINE = "\u001B[1A"; // or "\033[A"
-    private static final String MOVE_RIGHT = "\033[C"; // or "\033[A"
-    private static final String MOVE_LEFT = "\033[D";
-    private static final String RESET_COLOR = "\033[0m"; // Reset to default color
-    private static final String INVERT_COLOR = "\033[7m"; // Invert foreground and background
+
+    public static final String SAVE_CURSOR = "\u001B[s"; // or "\0337"
+    public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
+    public static final String MOVE_TO_START_AND_CLEAR = "\r\u001B[K";
+    public static final String MOVE_UP_ONE_LINE = "\u001B[1A"; // or "\033[A"
+    public static final String MOVE_RIGHT = "\033[C"; // or "\033[A"
+    public static final String MOVE_LEFT = "\033[D";
+    public static final String RESET_COLOR = "\033[0m"; // Reset to default color
+    public static final String INVERT_COLOR = "\033[7m"; // Invert foreground and background
+    private static final int ESC = 27;
+    private static final int LEFT_BRACKET = 91;
+    private static final int SHIFT_TAB_CODE = 90;
 
     private CompletionProvider completionProvider;
     private InputStreamReader stdind_reader = new InputStreamReader(System.in);
@@ -59,6 +63,10 @@ public class PromptTerminal {
 
     public void setPrompt(String newPrompt) {
         this.prompt = newPrompt;
+    }
+
+    public boolean shouldQuit() {
+        return !this.running;
     }
 
     public void enableCompletion() {
@@ -217,13 +225,80 @@ public class PromptTerminal {
     }
 
     // DONE: previous command with arrow up
-    // TODO: autocomplete with TAB
-    // TODO: Terminal is overriding previous messages when terminal height increases
+    // DONE: autocomplete with TAB
 
+    // TODO: Terminal is overriding previous messages when terminal height increases
     Integer nlines = 0;
     Integer maxNlines = 0;
     Integer terminalWidth = 0;
     Integer terminalHeight = 0;
+
+    class CompletionStorage extends CompletionResult {
+        String previousWord = null;
+        int startWordIndex = 0;
+        int index = 0;
+        boolean lastUsed = false;
+
+        @Override
+        public String toString() {
+            return "{" +
+                    "previousWord='" + previousWord + "'" +
+                    ", startWordIndex=" + startWordIndex +
+                    ", index=" + index +
+                    ", lastUsed=" + lastUsed +
+                    ", completions"
+                    + ((this.possibilities == null) ? "=" : ("[" + possibilities.size() + "]="))
+                    + this.possibilities +
+                    ", modifyEnter=" + modifyEnter +
+                    "}";
+        }
+
+        public void reset() {
+            this.lastUsed = false;
+            this.index = 0;
+            this.possibilities = null;
+            this.previousWord = null;
+            if (!this.lastUsed) {
+                this.modifyEnter = false;
+            }
+        }
+
+    }
+
+    private static int properMod(int a, int b) {
+        return ((a % b) + b) % b;
+    }
+
+    private CompletionStorage handleAutoCompletion(CompletionStorage _cs, int val) {
+        CompletionStorage cs = _cs;
+        cs.lastUsed = true;
+        if (cs.previousWord == null || (cs.possibilities != null && cs.possibilities.size() <= 1)) {
+            cs.startWordIndex = getStartIndexOfWordUnderCursor();
+            cs.previousWord = prompt_buffer.substring(cs.startWordIndex, cursorPosition);
+        }
+
+        // We garanteed no null pointer accessing because we check for nullness before
+        // accessing size method using short circuiting
+        if (completionEnabled && (cs.possibilities == null || cs.possibilities.size() <= 1)) {
+            CompletionResult cr = completionProvider.getCompletionPossibilities(
+                    prompt_buffer.toString(), cs.previousWord);
+            cs.modifyEnter = cr.modifyEnter;
+            cs.possibilities = cr.possibilities;
+        }
+
+        if (cs.possibilities != null && cs.possibilities.size() > 0) {
+            cs.index = properMod(cs.index + val, cs.possibilities.size());
+            String completion = cs.possibilities.get(cs.index);
+
+            prompt_buffer.delete(cs.startWordIndex, cursorPosition);
+            prompt_buffer.insert(cs.startWordIndex, completion);
+
+            cursorPosition = cs.startWordIndex + completion.length();
+            prompt_buffer.setLength(cursorPosition);
+        }
+        return cs;
+
+    }
 
     public String readLine() throws IOException, InterruptedException {
         cursorPosition = 0;
@@ -234,57 +309,22 @@ public class PromptTerminal {
         displayPrompt(sb, terminalWidth, terminalHeight);
         System.out.print(sb);
         System.out.flush();
-        List<String> completionPossibilities = null;
-        int completionIndex = 0;
-        int completionStartWordIndex = 0;
-        String completionPreviousWord = null;
-        char lastChar = '\0';
-        boolean modifyEnter = false;
+        CompletionStorage cs = new CompletionStorage();
         while (running) {
             sb.setLength(0);
+
             char c = (char) stdind_reader.read();
             // Reset the state for completion
             // Both possibilities are close together on purpose
-            if (c != '\t' || (completionPossibilities != null && completionPossibilities.size() <= 1)) {
-                completionIndex = 0;
-                completionPossibilities = null;
-                completionPreviousWord = null;
-                if (lastChar != '\t') {
-                    modifyEnter = false;
-                }
-            }
 
             if (c == '\t') {
-                // Handle Tab key for auto-completion
-                if (completionPreviousWord == null) {
-                    completionStartWordIndex = getStartIndexOfWordUnderCursor();
-                    completionPreviousWord = prompt_buffer.substring(completionStartWordIndex, cursorPosition);
-                }
-                if (completionEnabled && completionPossibilities == null) {
-                    CompletionResult cr = completionProvider.getCompletionPossibilities(prompt_buffer.toString(),
-                            completionPreviousWord);
-                    modifyEnter = cr.modifyEnter;
-                    completionPossibilities = cr.possibilities;
-                }
+                cs = handleAutoCompletion(cs, 1);
+            } else {
+                cs.lastUsed = false;
+            }
 
-                if (completionPossibilities != null && completionPossibilities.size() > 0) {
-                    completionIndex = (completionIndex + 1) % completionPossibilities.size();
-                    String completion = completionPossibilities.get(completionIndex);
-                    prompt_buffer.delete(completionStartWordIndex, cursorPosition);
-                    prompt_buffer.insert(completionStartWordIndex, completion);
-                    cursorPosition = completionStartWordIndex + completion.length();
-                    prompt_buffer.setLength(cursorPosition);
-
-                    // prompt_buffer.insert(completionStartWordIndex, INVERT_COLOR);
-                    // prompt_buffer.insert(completionStartWordIndex +
-                    // INVERT_COLOR.length(), completion);
-                    // cursorPosition = completionStartWordIndex + completion.length() +
-                    // INVERT_COLOR.length();
-                    // prompt_buffer.insert(completionStartWordIndex +
-                    // INVERT_COLOR.length(), completion);
-                }
-            } else if (c == '\r' || c == '\n') {
-                if (!modifyEnter) {
+            if (c == '\r' || c == '\n') {
+                if (!cs.modifyEnter) {
 
                     // Move to next line && Move to beginning of next line
                     // Move cursor to the beginning of the line
@@ -300,10 +340,17 @@ public class PromptTerminal {
                 }
             } else if (c == 127 || c == 8) { // Backspace
                 deleteChar();
-            } else if (c == 27) { // ESC
+            } else if (c == ESC) { // ESC
                 char next = (char) stdind_reader.read();
                 if (next == '[') {
                     next = (char) stdind_reader.read();
+
+                    if (next == SHIFT_TAB_CODE) { // Shift+Tab
+                        cs = handleAutoCompletion(cs, -1);
+                    } else {
+                        cs.lastUsed = false;
+                    }
+
                     if (next == 'A') { // Up arrow
                         if (PROMPT_HISTORY.size() > 0) {
                             historyPosition -= 1;
@@ -342,18 +389,8 @@ public class PromptTerminal {
                     }
 
                 }
-            } else if (c >= 32 && c < 127) { // Printable ASCII characters
+            } else if ((c >= 32 && c < 127) || c == '´') { // Printable ASCII characters
                 prompt_buffer.insert(cursorPosition++, c);
-                // if (cursorPosition == prompt_buffer.length()) {
-                // System.out.print(c);
-                // } else {
-                //
-                // System.out.print(SAVE_CURSOR);
-                // System.out.print("\033[K"); // Clear the line from the cursor to the end
-                // // System.out.print(prompt_buffer.substring(cursorPosition - 1));
-                // System.out.print(RESTORE_CURSOR); // Clear the line from the cursor to the
-                // System.out.print(MOVE_RIGHT); // Move cursor right
-                // }
             } else if (c == 23) { // Ctrl+W
                 deleteWord();
             } else if (c == 3) { // Ctrl+C
@@ -362,15 +399,20 @@ public class PromptTerminal {
                 running = false;
                 return "";
             }
+
+            if (!cs.lastUsed || (cs.previousWord == null && cs.possibilities != null && cs.possibilities.size() == 1)) {
+                cs.reset();
+            }
+
             updateNlines();
             clearPrompt(sb);
             displayPrompt(sb, terminalWidth, terminalHeight);
             System.out.print(sb);
             System.out.flush();
-            lastChar = c;
         }
 
         return "";
+
     }
 
     public void moveCursorUp(StringBuilder sb, int rows) {

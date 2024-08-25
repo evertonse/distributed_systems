@@ -6,20 +6,13 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import java.net.http.HttpClient;
-
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 import java.util.Base64;
 import java.util.Map;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeoutException;
 // import java.util.concurrent.atomic.AtomicInteger;
@@ -27,44 +20,29 @@ import java.util.concurrent.TimeoutException;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
 
-import sun.misc.Signal;
-import sun.misc.SignalHandler;
-
 public class ChatClient {
-    private static InputStreamReader stdind_reader = new InputStreamReader(System.in);
     private static final String RABBITMQ_HOST = "44.199.104.169"; // Elastic IP from aws "localhost";
     private static final String RABBITMQ_PORT = "15672"; // Default management plugin port
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
-    private static final boolean DEBUG = false;
     private static final String SPECIAL_CHARS = "!#@";
-
-    private static boolean chat_client_running = false;
-
-    private static final String SAVE_CURSOR = "\u001B[s"; // or "\0337"
-    private static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
-    private static final String MOVE_TO_START_AND_CLEAR = "\r\u001B[K";
-    private static final String MOVE_UP_ONE_LINE = "\u001B[1A"; // or "\033[A"
-    private static final String MOVE_RIGHT = "\033[C"; // or "\033[A"
-    private static final String MOVE_LEFT = "\033[D";
-
-    private static final String RESET_COLOR = "\033[0m"; // Reset to default color
-    private static final String INVERT_COLOR = "\033[7m"; // Invert foreground and background
+    private static final boolean DEBUG = true;
 
     private static final String PROMPT_DEFAULT = ">>";
     private static final String FILES_DEFAULT_FOLDER = "assets";
 
-    private static Channel channel;
+    private static Channel channel = null;
     private static Connection connection = null;
+
     private static String username;
     private static String recipient;
     private static String group;
-    private static int cursorPosition = 0;
-    private static int historyPosition = 0;
-    private static AMQP.BasicProperties amqp_props = null;
+
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static String currentHost = HOSTS[0];
+
     private static final int CONNECTION_TIMEOUT = 5000;
+    private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
 
     private static final PromptTerminal terminal = new PromptTerminal(new CompletionProvider() {
         public CompletionResult getCompletionPossibilities(String line, String wordUnderCursor) {
@@ -104,7 +82,8 @@ public class ChatClient {
             /* Etapa 2 */ "addGroup", "removeGroup", "addUser", "delFromGroup",
             /* Etapa 3 */ "upload",
             /* Etapa 5 */ "listUsers", "listGroups", "listAllUsers",
-            /* TODO: Create the I am command, or whoami? */ "iam",
+            /* TODO: Create the I am command, or whoami? */
+            "whoami",
             /* Final ***/ "help"
     };
 
@@ -210,8 +189,6 @@ public class ChatClient {
             terminal.print("No recipient or group selected. Please select a recipient or group first.\n\r");
         }
     }
-
-    private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
 
     public static void declareFileTransferQueue(String username) throws IOException {
         String queueName = FILE_TRANSFER_PREFIX + username;
@@ -532,7 +509,8 @@ public class ChatClient {
 
             while (!Thread.currentThread().isInterrupted()) {
                 System.out
-                        .print(MOVE_TO_START_AND_CLEAR + "\r" + animationFrames[i++ % animationFrames.length]
+                        .print(PromptTerminal.MOVE_TO_START_AND_CLEAR + "\r"
+                                + animationFrames[i++ % animationFrames.length]
                                 + " Connecting  to " + currentHost);
                 try {
                     Thread.sleep(100);
@@ -630,7 +608,6 @@ public class ChatClient {
         try {
             Connection connection = tryConnection(factory);
             channel = connection.createChannel();
-            chat_client_running = true;
 
             System.out
                     .println(
@@ -639,7 +616,7 @@ public class ChatClient {
 
             terminal.setPrompt("User: ");
             username = terminal.readLine();
-            while (chat_client_running && !isValidUsername(username)) {
+            while (!terminal.shouldQuit() && !isValidUsername(username)) {
                 System.out.println(
                         "Username can't contain spaces, special characters (" + SPECIAL_CHARS
                                 + "),  neither be empty.");
@@ -648,6 +625,9 @@ public class ChatClient {
 
             terminal.enableCompletion();
             terminal.setPrompt(PROMPT_DEFAULT);
+            if (terminal.shouldQuit()) {
+                return;
+            }
             // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
             // durable to true, we get IOException
             createUser(username);
@@ -655,7 +635,7 @@ public class ChatClient {
             receiveMessageThread.start();
             receiveFileThread.start();
 
-            while (chat_client_running) {
+            while (!terminal.shouldQuit()) {
                 if (group != null) {
                     terminal.setPrompt("#" + group + ">> ");
                 } else if (recipient != null) {
