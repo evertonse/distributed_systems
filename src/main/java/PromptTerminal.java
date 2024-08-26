@@ -53,7 +53,7 @@ public class PromptTerminal {
     private String prompt = "";
     private int cursorPosition = 0;
     private int historyPosition = 0;
-    private StringBuilder prompt_buffer = new StringBuilder();
+    private StringBuilder editable = new StringBuilder();
     private boolean completionEnabled = false;
 
     public PromptTerminal(CompletionProvider completionProvider) {
@@ -112,23 +112,23 @@ public class PromptTerminal {
     }
 
     private void deleteWord() {
-        String user = prompt_buffer.toString();
+        String user = editable.toString();
 
         boolean earlyStop = false;
         while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
             earlyStop = true;
-            prompt_buffer.deleteCharAt(cursorPosition);
+            editable.deleteCharAt(cursorPosition);
         }
         while (!earlyStop && cursorIsInBounds(-1) && !isDelimiter(user.charAt(cursorPosition - 1))) {
             cursorPosition -= 1;
-            prompt_buffer.deleteCharAt(cursorPosition);
+            editable.deleteCharAt(cursorPosition);
         }
         cursorSnapToInBounds();
     }
 
     private boolean cursorIsInBounds(int cursorPosition, int i) {
-        if (cursorPosition + i > prompt_buffer.length() - 1) {
+        if (cursorPosition + i > editable.length() - 1) {
             return false;
         } else if (cursorPosition + i < 0) {
             return false;
@@ -137,7 +137,7 @@ public class PromptTerminal {
     }
 
     private int getStartIndexOfWordUnderCursor() {
-        String user = prompt_buffer.toString();
+        String user = editable.toString();
 
         boolean earlyStop = false;
         String ignore = "!/.-#@";
@@ -151,13 +151,13 @@ public class PromptTerminal {
                 && !isDelimiter(user.charAt(startPosition - 1), ignore)) {
             startPosition -= 1;
         }
-        startPosition = Math.clamp(startPosition, 0, prompt_buffer.length());
+        startPosition = Math.clamp(startPosition, 0, editable.length());
 
         return startPosition;
     }
 
     private void moveFowardWord() throws IOException, InterruptedException {
-        String user = prompt_buffer.toString();
+        String user = editable.toString();
 
         boolean earlyStop = false;
         while (cursorIsInBounds() && isDelimiter(user.charAt(cursorPosition))) {
@@ -171,7 +171,7 @@ public class PromptTerminal {
     }
 
     private void moveBackWord() throws IOException, InterruptedException {
-        String user = prompt_buffer.toString();
+        String user = editable.toString();
 
         boolean earlyStop = false;
         while (cursorIsInBounds(-1) && isDelimiter(user.charAt(cursorPosition - 1))) {
@@ -185,8 +185,8 @@ public class PromptTerminal {
     }
 
     private void cursorSnapToInBounds() {
-        if (cursorPosition > prompt_buffer.length() - 1) {
-            cursorPosition = prompt_buffer.length();
+        if (cursorPosition > editable.length() - 1) {
+            cursorPosition = editable.length();
         }
 
         else if (cursorPosition < 0) {
@@ -199,7 +199,7 @@ public class PromptTerminal {
     }
 
     private boolean cursorIsInBounds(int i) {
-        if (cursorPosition + i > prompt_buffer.length() - 1) {
+        if (cursorPosition + i > editable.length() - 1) {
             return false;
         } else if (cursorPosition + i < 0) {
             return false;
@@ -209,8 +209,8 @@ public class PromptTerminal {
 
     private void moveCursor(int amount) {
         cursorPosition += amount;
-        if (cursorPosition > prompt_buffer.length() - 1) {
-            cursorPosition = prompt_buffer.length();
+        if (cursorPosition > editable.length() - 1) {
+            cursorPosition = editable.length();
         }
 
         else if (cursorPosition < 0) {
@@ -220,7 +220,7 @@ public class PromptTerminal {
 
     private void deleteChar() {
         if (cursorPosition > 0) {
-            prompt_buffer.deleteCharAt(--cursorPosition);
+            editable.deleteCharAt(--cursorPosition);
         }
     }
 
@@ -274,14 +274,14 @@ public class PromptTerminal {
         cs.lastUsed = true;
         if (cs.previousWord == null || (cs.possibilities != null && cs.possibilities.size() <= 1)) {
             cs.startWordIndex = getStartIndexOfWordUnderCursor();
-            cs.previousWord = prompt_buffer.substring(cs.startWordIndex, cursorPosition);
+            cs.previousWord = editable.substring(cs.startWordIndex, cursorPosition);
         }
 
         // We garanteed no null pointer accessing because we check for nullness before
         // accessing size method using short circuiting
         if (completionEnabled && (cs.possibilities == null || cs.possibilities.size() <= 1)) {
             CompletionResult cr = completionProvider.getCompletionPossibilities(
-                    prompt_buffer.toString(), cs.previousWord);
+                    editable.toString(), cs.previousWord);
             cs.modifyEnter = cr.modifyEnter;
             cs.possibilities = cr.possibilities;
         }
@@ -290,11 +290,11 @@ public class PromptTerminal {
             cs.index = properMod(cs.index + val, cs.possibilities.size());
             String completion = cs.possibilities.get(cs.index);
 
-            prompt_buffer.delete(cs.startWordIndex, cursorPosition);
-            prompt_buffer.insert(cs.startWordIndex, completion);
+            editable.delete(cs.startWordIndex, cursorPosition);
+            editable.insert(cs.startWordIndex, completion);
 
             cursorPosition = cs.startWordIndex + completion.length();
-            prompt_buffer.setLength(cursorPosition);
+            editable.setLength(cursorPosition);
         }
         return cs;
 
@@ -330,8 +330,8 @@ public class PromptTerminal {
                     // Move cursor to the beginning of the line
                     System.out.print("\n\r" + "\033[G" + "\033[K");
                     System.out.flush();
-                    String result = prompt_buffer.toString();
-                    prompt_buffer.setLength(0);
+                    String result = editable.toString();
+                    editable.setLength(0);
                     nlines = 0;
                     maxNlines = 0;
                     PROMPT_HISTORY.add(result);
@@ -355,9 +355,9 @@ public class PromptTerminal {
                         if (PROMPT_HISTORY.size() > 0) {
                             historyPosition -= 1;
                             historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                            prompt_buffer.setLength(0);
-                            prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                            cursorPosition = prompt_buffer.length();
+                            editable.setLength(0);
+                            editable.append(PROMPT_HISTORY.get(historyPosition));
+                            cursorPosition = editable.length();
 
                         }
 
@@ -365,9 +365,9 @@ public class PromptTerminal {
                         if (PROMPT_HISTORY.size() > 0) {
                             historyPosition += 1;
                             historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
-                            prompt_buffer.setLength(0);
-                            prompt_buffer.append(PROMPT_HISTORY.get(historyPosition));
-                            cursorPosition = prompt_buffer.length();
+                            editable.setLength(0);
+                            editable.append(PROMPT_HISTORY.get(historyPosition));
+                            cursorPosition = editable.length();
                         }
                     } else if (next == 'C') { // Right arrow
                         moveCursor(1);
@@ -390,7 +390,7 @@ public class PromptTerminal {
 
                 }
             } else if ((c >= 32 && c < 127) || c == '´') { // Printable ASCII characters
-                prompt_buffer.insert(cursorPosition++, c);
+                editable.insert(cursorPosition++, c);
             } else if (c == 23) { // Ctrl+W
                 deleteWord();
             } else if (c == 3) { // Ctrl+C
@@ -404,8 +404,8 @@ public class PromptTerminal {
                 cs.reset();
             }
 
-            updateNlines();
             clearPrompt(sb);
+            updateNlines();
             displayPrompt(sb, terminalWidth, terminalHeight);
             System.out.print(sb);
             System.out.flush();
@@ -454,41 +454,38 @@ public class PromptTerminal {
 
     public void updateNlines() {
         updateTerminalSize();
-        if (prompt == null || prompt_buffer == null) {
+        if (prompt == null || editable == null) {
             return;
         }
-        int wholePromptLength = prompt.length() + prompt_buffer.length();
+        int wholePromptLength = prompt.length() + editable.length();
         int newNlines = (wholePromptLength - 1) / (terminalWidth);
         maxNlines = Math.max(newNlines, maxNlines);
         nlines = newNlines;
     }
 
-    public void clearPrompt(StringBuilder operations) {
-        updateNlines();
-        operations.append("\033[" + 9999 + "B");
+    public void clearPrompt(StringBuilder sb) {
+        // updateNlines();
+        moveCursorToLastRow(sb);
+        // sb.append("\033[" + 9999 + "B");
         // "\033[99999;%0H"
-        operations.append("\033[G"); // Move cursor to the beginning of the line
-        operations.append("\033[K"); // Clear the line from the cursor to the end
+        sb.append("\033[G"); // Move cursor to the beginning of the line
+        sb.append("\033[K"); // Clear the line from the cursor to the end
         // for (int i = 0; i < maxNlines; i++) {
         for (int i = 0; i < maxNlines; i++) {
-            operations.append("\033[A"); // Move cursor up one line
-            operations.append("\033[G"); // Move cursor to the beginning of the line
-            operations.append("\033[K"); // Clear the line from the cursor to the end
+            sb.append("\033[A"); // Move cursor up one line
+            sb.append("\033[G"); // Move cursor to the beginning of the line
+            sb.append("\033[K"); // Clear the line from the cursor to the end
         }
         boolean keep_promt_height_at_minimum_possible = false;
         if (keep_promt_height_at_minimum_possible) {
-            operations.append("\033[" + 9999 + "B");
+            sb.append("\033[" + 9999 + "B");
             for (int i = 0; i < nlines; i++) {
-                operations.append("\033[A"); // Move cursor up one line
+                sb.append("\033[A"); // Move cursor up one line
             }
         }
     }
 
     public void updatePromptCursor(StringBuilder sb, int terminalWidth, int terminalHeight) {
-        if (true) {
-            return;
-        }
-
         updateNlines();
         int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
         // XXX: Column is wrong
@@ -502,11 +499,10 @@ public class PromptTerminal {
         // // sb.append("\033[D"); // Move cursor left
         // }
         // assert row > 0;
+        moveCursorToLastRow(sb);
         moveCursorUp(sb, row);
         if (column == 1 && row >= 0) {
             setCursorColumn(sb, terminalWidth + 1);
-            sb.append(prompt_buffer.toString().charAt(cursorPosition)); // Move cursor right
-            // sb.append("\033[C"); // Move cursor right
         } else {
             setCursorColumn(sb, column);
         }
@@ -517,10 +513,12 @@ public class PromptTerminal {
     // https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html
     private void displayPrompt(StringBuilder sb, int terminalWidth, int terminalHeight) {
         // DONE: Clear old lines when we delete something
-        updateNlines();
 
+        int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
         int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
-        String user = prompt_buffer.toString();
+        int column2 = ((prompt.length() + editable.length()) % (terminalWidth)) + 1;
+
+        String user = editable.toString();
 
         sb.append("\033[G" + "\033[K");
         sb.append(prompt + user.substring(0, cursorPosition));
@@ -528,10 +526,19 @@ public class PromptTerminal {
 
         sb.append(user.substring(cursorPosition, user.length()));
         sb.append(RESTORE_CURSOR);
+        // updatePromptCursor(sb, terminalWidth, terminalHeight);
         if (column == 1) {
             sb.append(user.charAt(cursorPosition - 1));
-
+        } else {
         }
+        if (column > 2) {
+            // updatePromptCursor(sb, terminalWidth, terminalHeight);
+        }
+        // sb.append("column = " + column);
+        // sb.append("column2 = " + column2);
+        // sb.append("column2 = " + column2);
+        // sb.append("nlines = " + nlines);
+        // sb.append("maxNlines = " + maxNlines);
     }
 
     // System.out.print("\033[2J"); // Clear the screen
@@ -577,9 +584,8 @@ public class PromptTerminal {
     }
 
     // Function to move the cursor to the last row
-    private void moveCursorToLastRow(int terminalHeight) {
-        System.out.print("\033[" + terminalHeight + ";1H"); // Move cursor to the last row, column 1
-        System.out.flush();
+    private void moveCursorToLastRow(StringBuilder sb) {
+        sb.append("\033[" + 9999 + ";1H");
     }
 
     private int getTerminalHeight() throws IOException, InterruptedException {
@@ -589,18 +595,20 @@ public class PromptTerminal {
     }
 
     public void print(String text) {
+        maxNlines = 0;
         updateNlines();
         StringBuilder sb = new StringBuilder();
-        sb.append("\033[G" + "\033[K");
-        sb.append(text);
-        for (int i = 0; i < maxNlines; i++) {
-            sb.append("\n"); // Move cursor up one line
-        }
 
+        clearPrompt(sb);
+
+        moveCursorToLastRow(sb);
         for (int i = 0; i < maxNlines; i++) {
+            sb.append(MOVE_TO_START_AND_CLEAR);
             sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
         }
 
+        sb.append(MOVE_TO_START_AND_CLEAR);
+        sb.append(text);
         displayPrompt(sb, terminalWidth, terminalHeight);
         System.out.print(sb.toString());
         System.out.flush();

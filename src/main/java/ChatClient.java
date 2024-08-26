@@ -309,7 +309,7 @@ public class ChatClient {
     };
 
     private static boolean isValidUsername(String username) {
-        if (username == "" || username.contains(" ")) {
+        if (username == null || username == "" || username.contains(" ")) {
             return false;
         }
         for (char c : SPECIAL_CHARS.toCharArray()) {
@@ -783,14 +783,6 @@ public class ChatClient {
                     terminal.setPrompt(PROMPT_DEFAULT);
                 }
 
-                //
-                // Periodically check for terminal size changes,
-                // I don't know if this will be fast enough on AWS machines.
-                // Even the rendering might be too slow.
-                // I'll just keep developing for now, then we'll see when we port to
-                // AWS
-                //
-                // updateTerminalSizeThread.start();
                 String input = terminal.readLine();
 
                 if (input.startsWith("@")) {
@@ -806,7 +798,9 @@ public class ChatClient {
                 } else if (input.startsWith("!")) {
                     handleCommand(input);
                 } else {
-                    sendTextMessage(input);
+                    if (input != "" && input != null) {
+                        sendTextMessage(input);
+                    }
                 }
             }
             receiveMessageThread.interrupt();
@@ -879,7 +873,7 @@ public class ChatClient {
 
             String timestamp = String.format("%s às %s", date, hour);
 
-            terminal.print(String.format("(%s) %s diz: %s\n", timestamp, sender, msgContent));
+            terminal.print(String.format("(%s) %s diz: %s\n\r", timestamp, sender, msgContent));
         };
 
         try {
