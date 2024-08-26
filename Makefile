@@ -3,7 +3,7 @@ CLASSES := $(shell find . -name "*.class")
 JARS := $(shell find . -name "*.jar")
 
 DIR := target
-TARGET := $(DIR)/EvertonChat-1.0-SNAPSHOT-jar-with-dependencies.jar
+TARGET := $(DIR)/*.jar
 
 run: $(TARGET)
 	java -ea -jar $(TARGET)

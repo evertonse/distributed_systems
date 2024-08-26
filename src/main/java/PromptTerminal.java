@@ -228,8 +228,8 @@ public class PromptTerminal {
     // DONE: autocomplete with TAB
 
     // TODO: Terminal is overriding previous messages when terminal height increases
-    Integer nlines = 0;
-    Integer maxNlines = 0;
+    Integer promptLineCount = 0;
+    Integer maxPromptLineCount = 0;
     Integer terminalWidth = 0;
     Integer terminalHeight = 0;
 
@@ -332,8 +332,8 @@ public class PromptTerminal {
                     System.out.flush();
                     String result = editable.toString();
                     editable.setLength(0);
-                    nlines = 0;
-                    maxNlines = 0;
+                    promptLineCount = 0;
+                    maxPromptLineCount = 0;
                     PROMPT_HISTORY.add(result);
                     historyPosition = PROMPT_HISTORY.size();
                     return result;
@@ -459,27 +459,22 @@ public class PromptTerminal {
         }
         int wholePromptLength = prompt.length() + editable.length();
         int newNlines = (wholePromptLength - 1) / (terminalWidth);
-        maxNlines = Math.max(newNlines, maxNlines);
-        nlines = newNlines;
+        maxPromptLineCount = Math.max(newNlines, maxPromptLineCount);
+        promptLineCount = newNlines;
     }
 
     public void clearPrompt(StringBuilder sb) {
-        // updateNlines();
         moveCursorToLastRow(sb);
-        // sb.append("\033[" + 9999 + "B");
-        // "\033[99999;%0H"
-        sb.append("\033[G"); // Move cursor to the beginning of the line
-        sb.append("\033[K"); // Clear the line from the cursor to the end
-        // for (int i = 0; i < maxNlines; i++) {
-        for (int i = 0; i < maxNlines; i++) {
-            sb.append("\033[A"); // Move cursor up one line
-            sb.append("\033[G"); // Move cursor to the beginning of the line
-            sb.append("\033[K"); // Clear the line from the cursor to the end
+        for (int i = 0; i < maxPromptLineCount; i++) {
+            sb.append(MOVE_TO_START_AND_CLEAR);
+            sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
         }
+        sb.append(MOVE_TO_START_AND_CLEAR);
+
         boolean keep_promt_height_at_minimum_possible = false;
         if (keep_promt_height_at_minimum_possible) {
             sb.append("\033[" + 9999 + "B");
-            for (int i = 0; i < nlines; i++) {
+            for (int i = 0; i < promptLineCount; i++) {
                 sb.append("\033[A"); // Move cursor up one line
             }
         }
@@ -487,7 +482,7 @@ public class PromptTerminal {
 
     public void updatePromptCursor(StringBuilder sb, int terminalWidth, int terminalHeight) {
         updateNlines();
-        int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
+        int row = promptLineCount - ((prompt.length() + cursorPosition - 1) / terminalWidth);
         // XXX: Column is wrong
         int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
 
@@ -514,9 +509,9 @@ public class PromptTerminal {
     private void displayPrompt(StringBuilder sb, int terminalWidth, int terminalHeight) {
         // DONE: Clear old lines when we delete something
 
-        int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
+        // int row = nlines - ((prompt.length() + cursorPosition - 1) / terminalWidth);
         int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
-        int column2 = ((prompt.length() + editable.length()) % (terminalWidth)) + 1;
+        // int column2 = ((prompt.length() + editable.length()) % (terminalWidth)) + 1;
 
         String user = editable.toString();
 
@@ -531,17 +526,8 @@ public class PromptTerminal {
             sb.append(user.charAt(cursorPosition - 1));
         } else {
         }
-        if (column > 2) {
-            // updatePromptCursor(sb, terminalWidth, terminalHeight);
-        }
-        // sb.append("column = " + column);
-        // sb.append("column2 = " + column2);
-        // sb.append("column2 = " + column2);
-        // sb.append("nlines = " + nlines);
-        // sb.append("maxNlines = " + maxNlines);
     }
 
-    // System.out.print("\033[2J"); // Clear the screen
     private String[] ttyConfig;
 
     private String stty(String args) throws IOException, InterruptedException {
@@ -595,20 +581,18 @@ public class PromptTerminal {
     }
 
     public void print(String text) {
-        maxNlines = 0;
         updateNlines();
-        StringBuilder sb = new StringBuilder();
 
+        StringBuilder sb = new StringBuilder();
         clearPrompt(sb);
 
-        moveCursorToLastRow(sb);
-        for (int i = 0; i < maxNlines; i++) {
-            sb.append(MOVE_TO_START_AND_CLEAR);
-            sb.append(MOVE_UP_ONE_LINE); // Move cursor up one line
-        }
-
-        sb.append(MOVE_TO_START_AND_CLEAR);
         sb.append(text);
+        for (int i = 0; i < maxPromptLineCount; i++) {
+            sb.append("\n\r");
+        }
+        clearPrompt(sb);
+        // maxNlines = 0;
+        // updateNlines();
         displayPrompt(sb, terminalWidth, terminalHeight);
         System.out.print(sb.toString());
         System.out.flush();

@@ -11,6 +11,7 @@
 
 
   <build>
+    <finalName>ChatClient</finalName>
     <plugins>
       <plugin>
         <artifactId>maven-assembly-plugin</artifactId>
