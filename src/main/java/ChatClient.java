@@ -35,7 +35,7 @@ public class ChatClient {
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
     private static final String SPECIAL_CHARS = "!#@";
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
 
     private static final String PROMPT_DEFAULT = ">>";
     private static final String FILES_DEFAULT_FOLDER = "assets";
@@ -809,7 +809,6 @@ public class ChatClient {
             System.out.println("\rFailed to connect: " + e);
         } finally {
             terminal.toCookedMode();
-            channel.close();
             // NOTE(excyber): important to make sure threads doesn't hang
             // closing the connection already closes the channel I think, because
             // it does not hangs even if we ONLY close the connection
