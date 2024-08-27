@@ -6,6 +6,7 @@ import java.util.List;
 
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
+import java.util.concurrent.locks.ReentrantLock;
 
 class CompletionResult {
     public List<String> possibilities = null;
@@ -30,8 +31,8 @@ interface CompletionProvider {
 }
 
 public class PromptTerminal {
-
-    private static final String SPECIAL_CHARS = "!#@";
+    private final ReentrantLock LOCK = new ReentrantLock();
+    private final List<String> PROMPT_HISTORY = new ArrayList<String>();
 
     public static final String SAVE_CURSOR = "\u001B[s"; // or "\0337"
     public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
@@ -47,7 +48,6 @@ public class PromptTerminal {
 
     private CompletionProvider completionProvider;
     private InputStreamReader stdind_reader = new InputStreamReader(System.in);
-    private final List<String> PROMPT_HISTORY = new ArrayList<String>();
 
     private boolean running = true;
     private String prompt = "";
@@ -151,9 +151,19 @@ public class PromptTerminal {
                 && !isDelimiter(user.charAt(startPosition - 1), ignore)) {
             startPosition -= 1;
         }
-        startPosition = Math.clamp(startPosition, 0, editable.length());
+        startPosition = clamp(startPosition, 0, editable.length());
 
         return startPosition;
+    }
+
+    private static int clamp(int value, int min, int max) {
+        if (value < min) {
+            return min;
+        } else if (value > max) {
+            return max;
+        } else {
+            return value;
+        }
     }
 
     private void moveFowardWord() throws IOException, InterruptedException {
@@ -301,16 +311,23 @@ public class PromptTerminal {
     }
 
     public String readLine() throws IOException, InterruptedException {
-        cursorPosition = 0;
         StringBuilder sb = new StringBuilder();
-
-        updateNlines();
-        clearPrompt(sb);
-        displayPrompt(sb, terminalWidth, terminalHeight);
-        System.out.print(sb);
-        System.out.flush();
         CompletionStorage cs = new CompletionStorage();
+
+        LOCK.lock();
+        try {
+            cursorPosition = 0;
+            updateNlines();
+            clearPrompt(sb);
+            displayPrompt(sb, terminalWidth, terminalHeight);
+            System.out.print(sb);
+            System.out.flush();
+        } finally {
+            LOCK.unlock();
+        }
+
         while (running) {
+            // LOCK.lock();
             sb.setLength(0);
 
             char c = (char) stdind_reader.read();
@@ -354,7 +371,7 @@ public class PromptTerminal {
                     if (next == 'A') { // Up arrow
                         if (PROMPT_HISTORY.size() > 0) {
                             historyPosition -= 1;
-                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                            historyPosition = clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
                             editable.setLength(0);
                             editable.append(PROMPT_HISTORY.get(historyPosition));
                             cursorPosition = editable.length();
@@ -364,7 +381,7 @@ public class PromptTerminal {
                     } else if (next == 'B') { // Down arrow
                         if (PROMPT_HISTORY.size() > 0) {
                             historyPosition += 1;
-                            historyPosition = Math.clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
+                            historyPosition = clamp(historyPosition, 0, PROMPT_HISTORY.size() - 1);
                             editable.setLength(0);
                             editable.append(PROMPT_HISTORY.get(historyPosition));
                             cursorPosition = editable.length();
@@ -394,10 +411,16 @@ public class PromptTerminal {
             } else if (c == 23) { // Ctrl+W
                 deleteWord();
             } else if (c == 3) { // Ctrl+C
-                System.out.print("\r\n");
-                System.out.println("Ctrl + C detected exiting...");
-                running = false;
-                return "";
+                if (editable != null && editable.length() == 0) {
+
+                    System.out.print("\r\n");
+                    System.out.println("Ctrl + C detected exiting...");
+                    running = false;
+                    return "";
+                } else {
+                    editable.setLength(0);
+                    cursorPosition = 0;
+                }
             }
 
             if (!cs.lastUsed || (cs.previousWord == null && cs.possibilities != null && cs.possibilities.size() == 1)) {
@@ -409,6 +432,7 @@ public class PromptTerminal {
             displayPrompt(sb, terminalWidth, terminalHeight);
             System.out.print(sb);
             System.out.flush();
+            // LOCK.unlock();
         }
 
         return "";
@@ -581,21 +605,26 @@ public class PromptTerminal {
     }
 
     public void print(String text) {
-        updateNlines();
+        LOCK.lock();
+        try {
+            updateNlines();
 
-        StringBuilder sb = new StringBuilder();
-        clearPrompt(sb);
+            StringBuilder sb = new StringBuilder();
+            clearPrompt(sb);
 
-        sb.append(text);
-        for (int i = 0; i < maxPromptLineCount; i++) {
-            sb.append("\n\r");
+            sb.append(text);
+            for (int i = 0; i < maxPromptLineCount; i++) {
+                sb.append("\n\r");
+            }
+            clearPrompt(sb);
+            // maxNlines = 0;
+            // updateNlines();
+            displayPrompt(sb, terminalWidth, terminalHeight);
+            System.out.print(sb.toString());
+            System.out.flush();
+        } finally {
+            LOCK.unlock();
         }
-        clearPrompt(sb);
-        // maxNlines = 0;
-        // updateNlines();
-        displayPrompt(sb, terminalWidth, terminalHeight);
-        System.out.print(sb.toString());
-        System.out.flush();
     }
 
 }

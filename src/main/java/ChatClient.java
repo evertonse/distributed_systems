@@ -1,7 +1,8 @@
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
@@ -9,16 +10,21 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-
-import java.util.Base64;
-import java.util.Map;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 // import java.util.concurrent.atomic.AtomicInteger;
 
-import com.rabbitmq.client.*;
 import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
+import com.rabbitmq.client.AlreadyClosedException;
+import com.rabbitmq.client.Channel;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.DeliverCallback;
 
 interface Command {
     public String getName();
@@ -34,11 +40,11 @@ public class ChatClient {
     private static final String RABBITMQ_PORT = "15672"; // Default management plugin port
     private static final String RABBITMQ_USERNAME = "admin";
     private static final String RABBITMQ_PASSWORD = "password";
-    private static final String SPECIAL_CHARS = "!#@";
-    private static final boolean DEBUG = false;
+    private static final String SPECIAL_CHARS = "!#@-/";
+    private static final boolean DEBUG = true;
 
     private static final String PROMPT_DEFAULT = ">>";
-    private static final String FILES_DEFAULT_FOLDER = "assets";
+    private static final String FILES_DEFAULT_FOLDER = "downloads";
 
     private static Channel channel = null;
     private static Connection connection = null;
@@ -52,6 +58,8 @@ public class ChatClient {
 
     private static final int CONNECTION_TIMEOUT = 5000;
     private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
+
+    private static final ExecutorService executor = Executors.newCachedThreadPool();
 
     private static final PromptTerminal terminal = new PromptTerminal(new CompletionProvider() {
         public CompletionResult getCompletionPossibilities(String line, String wordUnderCursor) {
@@ -85,17 +93,7 @@ public class ChatClient {
 
     });
 
-    private static final String[] POSSIBLE_COMMANDS = {
-            /* Etapa 2 */ "addGroup", "removeGroup", "addUser", "delFromGroup",
-            /* Etapa 3 */ "upload",
-            /* Etapa 5 */ "listUsers", "listGroups", "listAllUsers",
-            /* TODO: Create the I am command, or whoami? */
-            "whoami",
-            /* Final ***/ "help"
-    };
-
     private static final Command[] COMMANDS = {
-
             new Command() {
                 public String getName() {
                     return "addGroup";
@@ -119,8 +117,7 @@ public class ChatClient {
                         return ("Usage: !addGroup <group_name>");
                     }
                 }
-            },
-            new Command() {
+            }, new Command() {
                 public String getName() {
                     return "removeGroup";
                 }
@@ -139,8 +136,7 @@ public class ChatClient {
                     }
                     return sb.toString();
                 }
-            },
-            new Command() {
+            }, new Command() {
                 public String getName() {
                     return "whoami";
                 }
@@ -253,8 +249,7 @@ public class ChatClient {
                     }
                     return sb.toString();
                 }
-            },
-            new Command() {
+            }, new Command() {
                 public String getName() {
                     return "listAllUsers";
                 }
@@ -272,8 +267,7 @@ public class ChatClient {
                     }
                     return sb.toString();
                 }
-            },
-            new Command() {
+            }, new Command() {
                 public String getName() {
                     return "listGroups";
                 }
@@ -392,6 +386,49 @@ public class ChatClient {
         }
 
         return ("Enviando \"" + filePath + "\" para " + destination + ".");
+    }
+
+    public static void sendChunkedFileMessage(File file) throws IOException {
+        // Define the maximum size for a chunk (50MB)
+        final long MAX_CHUNK_SIZE = 50L * 1024L * 1024L; // 50MB in bytes
+        String mimeType = Files.probeContentType(file.toPath());
+        long fileSize = file.length();
+
+        // Warn the user if the file is larger than MAX_CHUNK_SIZE
+        if (fileSize > MAX_CHUNK_SIZE) {
+            terminal.print(String.format("O arquivo \"%s\" é grande. Ele será enviado em pedaços.\n\r",
+                    file.getName()));
+        }
+
+        // Send the file in chunks
+        try (InputStream inputStream = new FileInputStream(file)) {
+            byte[] buffer = new byte[(int) Math.min(MAX_CHUNK_SIZE, fileSize)];
+            int bytesRead;
+            int partNumber = 1;
+
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                byte[] msg = MessageUtils.createBytesMessage(username, group, buffer, mimeType,
+                        file.getName() + partNumber);
+                partNumber++;
+
+                if (group != null) {
+                    sendGroupMessage(FILE_TRANSFER_PREFIX + group, msg);
+                    terminal.print(String.format("Pedaço %d do arquivo \"%s\" foi enviado para #%s.\n\r", partNumber,
+                            file.getName(), group));
+                } else if (recipient != null) {
+                    String whereTo = FILE_TRANSFER_PREFIX + recipient;
+                    channel.basicPublish("", whereTo, null, msg);
+                    terminal.print(String.format("Pedaço %d do arquivo \"%s\" foi enviado para @%s.\n\r", partNumber,
+                            file.getName(), recipient));
+                } else {
+                    terminal.print(
+                            "Nenhum destinatário ou grupo selecionado. Por favor, selecione um destinatário ou grupo primeiro.\n\r");
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            terminal.print(String.format("Erro ao enviar o arquivo \"%s\": %s\n\r", file.getName(), e.getMessage()));
+        }
     }
 
     public static void sendFileMessage(File file) throws IOException {
@@ -516,11 +553,35 @@ public class ChatClient {
             sb.append(pad + cmd.getHelp());
             sb.append("\n\r");
         }
-        sb.append("You can use 'TAB' to autocomplete (commands, filepaths, users, groups, etc ...).");
+        sb.append("\n\rYou can use:\n\r")
+                .append(pad + "'Arrow' left or right move cursor (can be modified with 'Crtl').\n\r")
+                .append(pad + "'Ctrl+W' delete a word.\n\r")
+                .append(pad + "'TAB' to autocomplete (commands, filepaths, users, groups, etc ...).");
         return sb.toString();
     }
 
-    public static void sendTextMessage(String text) throws IOException {
+    public static void sendTextMessage(String text) {
+        // Submit vs. Execute:
+        // submit() if you need a Future to track task completion or handle exceptions.
+        // execute() if you just want to run the task without tracking it.
+        executor.execute(() -> {
+            try {
+                byte[] msg = MessageUtils.createTextMessage(username, group, text, "text/plain");
+
+                if (group != null) {
+                    sendGroupMessage(group, msg);
+                } else if (recipient != null) {
+                    channel.basicPublish("", recipient, null, msg);
+                }
+            } catch (IOException e) {
+                if (DEBUG) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    public static void sendBlockingTextMessage(String text) throws IOException {
         byte[] msg = MessageUtils.createTextMessage(username, group, text, "text/plain");
 
         if (group != null) {
@@ -645,8 +706,9 @@ public class ChatClient {
             int i = 0;
 
             while (!Thread.currentThread().isInterrupted()) {
+
                 System.out
-                        .print(PromptTerminal.MOVE_TO_START_AND_CLEAR + "\r"
+                        .print("\033[" + 9999 + ";1H" + PromptTerminal.MOVE_TO_START_AND_CLEAR + "\r"
                                 + animationFrames[i++ % animationFrames.length]
                                 + " Connecting  to " + currentHost);
                 try {
@@ -658,9 +720,6 @@ public class ChatClient {
         });
 
         int hostIndex = 0;
-        if (DEBUG) {
-            currentHost = "localhost";
-        }
 
         loadingThread.start();
         factory.setConnectionTimeout(CONNECTION_TIMEOUT);
@@ -668,10 +727,6 @@ public class ChatClient {
 
         while (connection == null) {
             currentHost = HOSTS[hostIndex];
-
-            if (DEBUG && hostIndex == 0) {
-                currentHost = "localhost";
-            }
 
             factory.setHost(currentHost);
             try {
@@ -747,9 +802,9 @@ public class ChatClient {
             channel = connection.createChannel();
 
             System.out.println("Raw mode enabled.\n\r"
-                    + "Press 'Crtl+c' to quit.\n\r"
+                    + "Press 'Crtl+c' once to clear and again to quit.\n\r"
                     + "Type '!help' to see available commands after entering your username.\n\r"
-                    + "You tab use 'TAB' to autocomplete.");
+                    + "Use 'TAB' to autocomplete.");
 
             terminal.toRawMode();
 
@@ -809,6 +864,7 @@ public class ChatClient {
             System.out.println("\rFailed to connect: " + e);
         } finally {
             terminal.toCookedMode();
+            executor.shutdown();
             // NOTE(excyber): important to make sure threads doesn't hang
             // closing the connection already closes the channel I think, because
             // it does not hangs even if we ONLY close the connection
@@ -922,10 +978,28 @@ public class ChatClient {
                 terminal.print("Failed to deserialize message: " + e.getMessage());
                 return;
             }
-            String filePath = FILES_DEFAULT_FOLDER + '/' + String.format(
-                    "%s-%s-%s-%s", date, hour, sender, fileName)
-                    .replace("/", "-")
-                    .replace("\\", "-");
+
+            String folderName = (group != null && !group.isEmpty()) ? group : sender;
+            folderName = folderName.replace(File.separator, "-");
+
+            File folder = new File(FILES_DEFAULT_FOLDER, folderName);
+            if (!folder.exists()) {
+                folder.mkdirs();
+            }
+
+            boolean includeDateInFilePath = false;
+
+            String filePath;
+            if (includeDateInFilePath) {
+                filePath = folder.getPath() + File.separator + String.format(
+                        "%s-%s-%s", date, hour, fileName)
+                        .replace(File.separator, "-");
+            } else {
+                filePath = folder.getPath() + File.separator + String.format(
+                        "%s", fileName)
+                        .replace(File.separator, "-");
+
+            }
 
             saveReceivedFile(filePath, fileContentBytes);
             String timestamp = String.format("%s às %s", date, hour);
@@ -943,9 +1017,12 @@ public class ChatClient {
     }
 
     public static List<String> apiGetAllQueues() {
-        String username = "guest";
-        String password = "guest";
+        String username = RABBITMQ_USERNAME;
+        String password = RABBITMQ_PASSWORD;
+        // String username = "guest";
+        // String password = "guest";
         String vhost = "%2F";
+        List<String> names = new ArrayList<String>();
 
         try {
             String key = "name";
@@ -971,28 +1048,29 @@ public class ChatClient {
             }
             in.close();
 
-            List<String> exchangeNames = new ArrayList<String>();
-
             for (String name : jsonExtractFromKey(response.toString(), key)) {
                 if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
-                    exchangeNames.add(name);
+                    names.add(name);
                 }
             }
             // return new ArrayList<>(Arrays.asList(response.toString()));
-            return exchangeNames;
+            return names;
 
         } catch (Exception e) {
             if (DEBUG) {
                 e.printStackTrace();
             }
-            return null;
+            return names;
         }
     }
 
     public static List<String> apiGetExchangers() {
-        String username = "guest"; // RabbitMQ username
-        String password = "guest"; // RabbitMQ password
+        // String username = "guest"; // RabbitMQ username
+        // String password = "guest"; // RabbitMQ password
+        String username = RABBITMQ_USERNAME;
+        String password = RABBITMQ_PASSWORD;
         String vhost = "%2F"; // Virtual host, use "%2F" for the default vhost
+        List<String> exchangeNames = new ArrayList<String>();
 
         String key = "name";
         try {
@@ -1022,8 +1100,6 @@ public class ChatClient {
             }
             in.close();
 
-            List<String> exchangeNames = new ArrayList<String>();
-
             for (String name : jsonExtractFromKey(response.toString(), key)) {
                 if (!name.startsWith("amq.") && !name.isEmpty() && !name.startsWith(FILE_TRANSFER_PREFIX)) {
                     exchangeNames.add(name);
@@ -1035,14 +1111,16 @@ public class ChatClient {
             if (DEBUG) {
                 e.printStackTrace();
             }
-            return null;
+            return exchangeNames;
         }
 
     }
 
     public static List<String> apiGetQueuesBoundToExchange(String exchangeName) {
-        String username = "guest";
-        String password = "guest";
+        // String username = "guest";
+        // String password = "guest";
+        String username = RABBITMQ_USERNAME;
+        String password = RABBITMQ_PASSWORD;
         String vhost = "%2F"; // Virtual host, use "%2F" for the default vhost
 
         try {

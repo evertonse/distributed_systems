@@ -10,7 +10,8 @@ run: $(TARGET)
 
 $(TARGET): $(SRC) pom.xml
 	@rm -f $(TARGET) # Delete the old target if it exists
-	mvn clean compile assembly:single
+	mvn compile assembly:single
+	# mvn clean compile assembly:single
 
 markdown:
 	watch --color -n 0.01 glow -p README.md
@@ -21,7 +22,7 @@ zip:
 
 clean:
 	@echo "Cleaning up..."
-
+	mvn clean
 	@rm -f $(JARS) # Remove all .jar files
 	@rm -f $(CLASSES) # Remove all .class files
 	@rm -f $(TARGET)
