@@ -305,5 +305,3 @@ Para implementar essas operações, deve-se usar a API HTTP de Gerenciamento do 
 
 -----------------------------------------------------------------------------
 # TODO
-
-

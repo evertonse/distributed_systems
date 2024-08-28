@@ -1,0 +1,49 @@
+Raw mode enabled.
+Press 'Crtl+c' once to clear and again to quit.
+Type '!help' to see available commands after entering your username.
+Use 'TAB' to autocomplete.
+User: p
+>>!addUser p oi
+User 'p' added to group 'oi'.
+>>#oi
+#oi>> oi
+#oi>> iai
+(29/08/2024 às 01:30:04) p#oi diz: iai
+#oi>> deu o caralho ms
+(29/08/2024 às 01:30:02) p#oi diz: oi
+#oi>> [pool-2-thread-12] ERROR com.rabbitmq.client.impl.ForgivingExceptionHandler - Consumer com.rabbitmq.client.impl.recovery.AutorecoveringChannel$2@62a9e3f6 (amq.ctag-0zK2yNWAJrY0U7fWCnxSFA) method handleDelivery for channel AMQChannel(amqp://admin@44.199.104.169:5672/,3) threw an exception for channel AMQChannel(amqp://admin@44.199.104.169:5672/,3)
+                          com.rabbitmq.client.AlreadyClosedException: channel is already closed due to channel error; protocol method: #method<channel.close>(reply-code=406, reply-text=PRECONDITION_FAILED - unknown delivery tag 1, class-id=60, method-id=80)
+                at com.rabbitmq.client.impl.AMQChannel.ensureIsOpen(AMQChannel.java:258)
+        at com.rabbitmq.client.impl.AMQChannel.transmit(AMQChannel.java:427)
+                                        at com.rabbitmq.client.impl.AMQChannel.transmit(AMQChannel.java:421)
+                                at com.rabbitmq.client.impl.recovery.RecoveryAwareChannelN.basicAck(RecoveryAwareChannelN.java:93)
+        at com.rabbitmq.client.impl.recovery.AutorecoveringChannel.basicAck(AutorecoveringChannel.java:438)
+                                at ChatClient.lambda$5(ChatClient.java:1150)
+                                        at com.rabbitmq.client.impl.recovery.AutorecoveringChannel$2.handleDelivery(AutorecoveringChannel.java:587)
+                                at com.rabbitmq.client.impl.ConsumerDispatcher$5.run(ConsumerDispatcher.java:149)
+                                at com.rabbitmq.client.impl.ConsumerWorkService$WorkPoolRunnable.run(ConsumerWorkService.java:104)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+                        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+                                        at java.base/java.lang.Thread.run(Thread.java:1570)
+(29/08/2024 às 01:30:11) p#oi diz: deu o caralho ms
+#oi>> [pool-2-thread-13] ERROR com.rabbitmq.client.impl.ForgivingExceptionHandler - Consumer com.rabbitmq.client.impl.recovery.AutorecoveringChannel$2@62a9e3f6 (amq.ctag-0zK2yNWAJrY0U7fWCnxSFA) method handleDelivery for channel AMQChannel(amqp://admin@44.199.104.169:5672/,3) threw an exception for channel AMQChannel(amqp://admin@44.199.104.169:5672/,3)
+                          com.rabbitmq.client.AlreadyClosedException: channel is already closed due to channel error; protocol method: #method<channel.close>(reply-code=406, reply-text=PRECONDITION_FAILED - unknown delivery tag 1, class-id=60, method-id=80)
+                at com.rabbitmq.client.impl.AMQChannel.ensureIsOpen(AMQChannel.java:258)
+        at com.rabbitmq.client.impl.AMQChannel.transmit(AMQChannel.java:427)
+                                        at com.rabbitmq.client.impl.AMQChannel.transmit(AMQChannel.java:421)
+                                at com.rabbitmq.client.impl.recovery.RecoveryAwareChannelN.basicAck(RecoveryAwareChannelN.java:93)
+        at com.rabbitmq.client.impl.recovery.AutorecoveringChannel.basicAck(AutorecoveringChannel.java:438)
+                                at ChatClient.lambda$5(ChatClient.java:1150)
+                                        at com.rabbitmq.client.impl.recovery.AutorecoveringChannel$2.handleDelivery(AutorecoveringChannel.java:587)
+                                at com.rabbitmq.client.impl.ConsumerDispatcher$5.run(ConsumerDispatcher.java:149)
+                                at com.rabbitmq.client.impl.ConsumerWorkService$WorkPoolRunnable.run(ConsumerWorkService.java:104)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+                        at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+                                        at java.base/java.lang.Thread.run(Thread.java:1570)
+
+
+---------------
+| Connecting  to 44.199.104.169
+Switching to the next host...
+[AMQP Connection 44.199.104.169:5672] WARN com.rabbitmq.client.impl.ForgivingExceptionHandler - An unexpected connection driver error occured (Exception message: Socket closed)
+

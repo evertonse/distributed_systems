@@ -6,7 +6,10 @@
 .project
 .settings/
 .trails
+
 old/
-rabbitmq.md
 ssh-code/
+assets/
 target/
+downloads/**
+random_text.txt

@@ -3,6 +3,7 @@ CLASSES := $(shell find . -name "*.class")
 JARS := $(shell find . -name "*.jar")
 
 DIR := target
+DONWLOADS_DIR := ./downloads/
 TARGET := $(DIR)/*.jar
 
 run: $(TARGET)
@@ -19,6 +20,8 @@ markdown:
 zip:
 	zip -r SD.zip ./ -x **class
 
+random-file:
+	head -c 100M /dev/urandom | tr -dc '[:print:]' > random_text.txt
 
 clean:
 	@echo "Cleaning up..."
@@ -27,8 +30,7 @@ clean:
 	@rm -f $(CLASSES) # Remove all .class files
 	@rm -f $(TARGET)
 	@rm -fr $(DIR)
-
-
+	@rm -fr $(DONWLOADS_DIR)
 	@echo "Cleanup completed."
 
 reset:
@@ -37,4 +39,4 @@ reset:
 	sudo rabbitmqctl start_app
 	sudo rabbitmq-plugins enable rabbitmq_management
 
-.PHONY: markdown run clean reset zip
+.PHONY: markdown run clean reset zip random-file
