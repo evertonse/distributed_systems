@@ -7,19 +7,15 @@ import com.rabbitmq.client.DeliverCallback;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -69,8 +65,6 @@ public class ChatClient {
   private static final int CONNECTION_TIMEOUT = 5000;
   private static final String FILE_DEFAULT_FOLDER = "downloads";
   private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
-  private static final String FILE_PART_FORMAT_STRING = "part_%d_of_%d";
-  private static final String FILE_PART_DIR_SUFFIX = "_parts";
 
   // Some MB
   private static final long FILE_MAX_CHUNK_SIZE = 20L * 1024L * 1024L;
@@ -1048,15 +1042,15 @@ public static void main(String[] args) throws IOException, TimeoutException {
       String input = terminal.readLine();
 
       if (input.startsWith("@")) {
-        recipient = input.substring(1);
-        if (!isValidUsername(recipient)) {
+        String newrecipient = input.substring(1);
+        if (!isValidUsername(newrecipient)) {
           System.out.println(
               "Usernames can't contain spaces, special characters (" +
               SPECIAL_CHARS + "),  neither be empty.");
-          recipient = null;
+        } else {
+          recipient = newrecipient;
+          group = null;
         }
-
-        group = null;
       } else if (input.startsWith("#")) {
         group = input.substring(1);
         if (!groupExists(group)) {
@@ -1241,96 +1235,6 @@ private static void receiveText2() {
   }
 }
 
-private static boolean
-assembleFileAndCleanup(File partFileDir, Path destinationPath, int totalParts)
-    throws IOException {
-  assert partFileDir.isDirectory();
-  Path firstPartPath =
-      Paths.get(partFileDir.toString(),
-                String.format(FILE_PART_FORMAT_STRING, 1, totalParts));
-
-  for (int i = 2; i <= totalParts; i++) {
-    Path nextPartPath =
-        Paths.get(partFileDir.toString(),
-                  String.format(FILE_PART_FORMAT_STRING, i, totalParts));
-    appendFile(firstPartPath, nextPartPath);
-  }
-
-  Files.move(firstPartPath, destinationPath,
-             StandardCopyOption.REPLACE_EXISTING);
-
-  for (int i = 2; i <= totalParts; i++) {
-    File nextPartFile =
-        new File(partFileDir.toString(),
-                 String.format(FILE_PART_FORMAT_STRING, i, totalParts));
-    nextPartFile.delete();
-  }
-  boolean ok = partFileDir.delete();
-  return ok;
-}
-
-public static void appendFiles2(File destinationFile, File... sourceFiles)
-    throws IOException {
-  try (FileChannel destChannel =
-           new FileOutputStream(destinationFile, true).getChannel()) {
-    for (File sourceFile : sourceFiles) {
-      try (FileChannel sourceChannel =
-               new FileInputStream(sourceFile).getChannel()) {
-        long position = 0;
-        long size = sourceChannel.size();
-        while (position < size) {
-          position +=
-              sourceChannel.transferTo(position, size - position, destChannel);
-        }
-      }
-    }
-  }
-}
-
-public static void appendFiles(File destinationFile, File... sourceFiles)
-    throws IOException {
-  try (FileChannel destChannel =
-           new FileOutputStream(destinationFile, true).getChannel()) {
-    for (File sourceFile : sourceFiles) {
-      try (FileChannel sourceChannel =
-               new FileInputStream(sourceFile).getChannel()) {
-        long count = sourceChannel.size();
-        sourceChannel.transferTo(0, count, destChannel);
-      }
-    }
-  }
-}
-
-private static void appendFile(Path destination, Path source)
-    throws IOException {
-  try (FileChannel sourceChannel =
-           FileChannel.open(source, StandardOpenOption.READ);
-       FileChannel destinationChannel = FileChannel.open(
-           destination, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
-    sourceChannel.transferTo(0, sourceChannel.size(), destinationChannel);
-  }
-}
-
-public static void saveReceivedFile(String filePath, byte[] fileContentBytes,
-                                    boolean append) throws IOException {
-  Path path = Paths.get(filePath);
-  Path parentDir = path.getParent();
-
-  // Ensure the parent directories exist
-  if (parentDir != null) {
-    Files.createDirectories(parentDir);
-  }
-
-  // Append the part to the file
-  try (FileOutputStream fos = new FileOutputStream(filePath, append)) {
-    fos.write(fileContentBytes);
-  } catch (IOException e) {
-    terminal.print("Error writing file part: " + e.getMessage());
-    return;
-  }
-  // Files.write(path, fileContentBytes);
-}
-
 private static void receiveFiles() {
   String queueName = FILE_TRANSFER_PREFIX + username;
   DeliverCallback deliverCallback = (consumerTag, delivery) -> {
@@ -1408,34 +1312,49 @@ private static void receiveFiles() {
       // Simple Case
       if (totalParts == 1) {
         assert partNumber == 1;
-        saveReceivedFile(filePath.toString(), fileContentBytes, false);
-        terminal.print(String.format("(%s) Arquivo \"%s\" recebido de %s.\n",
-                                     timestamp, fileName, sender));
-        fileSavedSuccessfully = true;
+        boolean ok =
+            FileUtils.saveFile(filePath.toString(), fileContentBytes, false);
+        if (ok) {
+          terminal.print(String.format("(%s) Arquivo \"%s\" recebido de %s.\n",
+                                       timestamp, fileName, sender));
+          fileSavedSuccessfully = true;
+        } else {
+
+          terminal.print(
+              String.format("Arquivo \"%s\" recebido de %s mas "
+                                + "não conseguimos salvar em disco :( .\n",
+                            fileName, sender));
+          fileSavedSuccessfully = false;
+        }
       } else {
         // More parts
-        File partFileDir =
-            new File(filePath + FILE_PART_DIR_SUFFIX + File.separator);
+        File partFileDir = new File(filePath + FileUtils.FILE_PART_DIR_SUFFIX +
+                                    File.separator);
         if (!partFileDir.exists()) {
           partFileDir.mkdirs();
         }
 
-        String partFilePath = new File(partFileDir,
+        String partFilePath =
+            new File(partFileDir,
+                     String.format(FileUtils.FILE_PART_FORMAT_STRING,
+                                   partNumber, totalParts))
+                .toString();
 
-                                       String.format(FILE_PART_FORMAT_STRING,
-                                                     partNumber, totalParts))
-                                  .toString();
+        boolean ok = FileUtils.saveFile(partFilePath, fileContentBytes, false);
+        if (ok) {
 
-        saveReceivedFile(partFilePath, fileContentBytes, false);
-        fileSavedSuccessfully = true;
-        terminal.print(
-            String.format("Parte %d/%d do arquivo \"%s\" recebida de %s.\n\r",
-                          partNumber, totalParts, fileName, sender));
+          terminal.print(
+              String.format("Parte %d/%d do arquivo \"%s\" recebida de %s.\n\r",
+                            partNumber, totalParts, fileName, sender));
+          fileSavedSuccessfully = true;
+        } else {
+          fileSavedSuccessfully = false;
+        }
 
-        if (allPartsReceived(partFileDir, totalParts)) {
-          boolean ok =
-              assembleFileAndCleanup(partFileDir, filePath, totalParts);
-          if (!ok) {
+        if (FileUtils.allPartsReceived(partFileDir, totalParts)) {
+          boolean okAssemble = FileUtils.assembleFileAndCleanup(
+              partFileDir, filePath, totalParts);
+          if (!okAssemble) {
             terminal.print(String.format(
                 "Waning: Could not delete intermediate directory %s.\n\r",
                 partFileDir));
@@ -1468,17 +1387,6 @@ private static void receiveFiles() {
         "\n\r`receiveFiles` IO problems. Here's the stack trace: \n\r");
     e.printStackTrace();
   }
-}
-
-private static boolean allPartsReceived(File partFileDir, int totalParts) {
-  for (int i = 1; i <= totalParts; i++) {
-    File partFile = new File(
-        partFileDir, String.format(FILE_PART_FORMAT_STRING, i, totalParts));
-    if (!partFile.exists()) {
-      return false;
-    }
-  }
-  return true;
 }
 
 public static List<String> apiGetAllQueues() {
