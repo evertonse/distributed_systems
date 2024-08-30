@@ -61,6 +61,7 @@ public class ChatClient {
 
     try {
 
+      rabbit.tryConnection(terminal);
       System.out.println("Raw mode enabled.\n\r"
                          + "Press 'Crtl+c' once to clear and again to quit.\n\r"
                          + "Type '!help' to see available commands after "

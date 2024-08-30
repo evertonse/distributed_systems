@@ -331,17 +331,20 @@ public class RabbitMQProxy {
     channel.basicPublish("", who, null, message);
   }
 
-  public Connection tryConnection() throws IOException, TimeoutException {
+  // Try to connect and create the file, text and default channels
+  public Connection tryConnection(Printable printer)
+      throws IOException, TimeoutException {
     Thread loadingThread = new Thread(() -> {
       String[] animationFrames = {"|", "/", "-", "\\"};
       int i = 0;
 
       while (!Thread.currentThread().isInterrupted()) {
 
-        System.out.print("\033[" + 9999 + ";1H" +
-                         PromptTerminal.MOVE_TO_START_AND_CLEAR + "\r" +
-                         animationFrames[i++ % animationFrames.length] +
-                         " Connecting  to " + host);
+        printer.print("\033[" + 9999 + ";1H" +
+                      PromptTerminal.MOVE_TO_START_AND_CLEAR +
+                      PromptTerminal.MOVE_UP_ONE_LINE +
+                      animationFrames[i++ % animationFrames.length] +
+                      " Connecting  to " + host /* + "\r\n" */);
         try {
           Thread.sleep(100);
         } catch (InterruptedException e) {
@@ -361,7 +364,7 @@ public class RabbitMQProxy {
 
     factory.setRequestedHeartbeat(60);
 
-    Connection connection = null;
+    connection = null;
     while (connection == null) {
       host = possibleHosts[hostIndex];
 
@@ -371,10 +374,10 @@ public class RabbitMQProxy {
         try {
           connection = factory.newConnection();
         } catch (Exception e) {
-          System.out.println("\nSwitching to the next host...");
+          printer.print("\nSwitching to the next host...");
         }
       } catch (Exception e) {
-        System.out.println("\r\n\rFailed to connect to " + host + ".");
+        printer.print("\r\n\rFailed to connect to " + host + ".");
       }
 
       // Switch to the next host
@@ -383,6 +386,12 @@ public class RabbitMQProxy {
 
     loadingThread.interrupt();
     System.out.println("\n\rConnected to " + host + "!");
+
+    if (connection != null) {
+      defaultChannel = connection.createChannel();
+      textChannel = connection.createChannel();
+      fileChannel = connection.createChannel();
+    }
     return connection;
   }
 
@@ -439,14 +448,13 @@ public class RabbitMQProxy {
     factory.setAutomaticRecoveryEnabled(true);
     factory.setNetworkRecoveryInterval(10000); // 10 seconds
     factory.setRequestedHeartbeat(60);
-
-    connection = this.tryConnection();
-    defaultChannel = connection.createChannel();
-    fileChannel = connection.createChannel();
-    textChannel = connection.createChannel();
   }
 
-  public void shutdown() throws IOException { connection.close(); }
+  public void shutdown() throws IOException {
+    if (connection != null) {
+      connection.close();
+    }
+  }
 
   public List<String> apiGetAllQueues() {
     // String username = "guest";

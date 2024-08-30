@@ -56,9 +56,11 @@ public class PromptTerminal implements Printable {
   private String prompt = "";
   private boolean completionEnabled = false;
 
-  private int cursorPosition = 0;
   private int historyPosition = 0;
-  private StringBuilder editable = new StringBuilder();
+
+  // Thread-safe version of StringBuilder
+  private StringBuffer editable = new StringBuffer();
+  private int cursorPosition = 0;
 
   public PromptTerminal(CompletionProvider completionProvider) {
     this.completionProvider = completionProvider;
@@ -112,17 +114,19 @@ public class PromptTerminal implements Printable {
     String user = editable.toString();
 
     boolean earlyStop = false;
-    while (cursorIsInBounds(-1) &&
-           isDelimiter(user.charAt(cursorPosition - 1))) {
-      cursorPosition -= 1;
+    int cursor = cursorPosition;
+    while (cursorIsInBounds(cursor, -1) &&
+           isDelimiter(user.charAt(cursor - 1))) {
+      cursor -= 1;
       earlyStop = true;
-      editable.deleteCharAt(cursorPosition);
+      editable.deleteCharAt(cursor);
     }
-    while (!earlyStop && cursorIsInBounds(-1) &&
-           !isDelimiter(user.charAt(cursorPosition - 1))) {
-      cursorPosition -= 1;
-      editable.deleteCharAt(cursorPosition);
+    while (!earlyStop && cursorIsInBounds(cursor, -1) &&
+           !isDelimiter(user.charAt(cursor - 1))) {
+      cursor -= 1;
+      editable.deleteCharAt(cursor);
     }
+    cursorPosition = cursor;
     cursorSnapToInBounds();
   }
 
@@ -527,7 +531,7 @@ public class PromptTerminal implements Printable {
   // DONE: See if the prompt needs to stay down, or if keeping it up is fine
   // https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html
   synchronized private void displayPrompt(StringBuilder sb, int terminalWidth,
-                             int terminalHeight) {
+                                          int terminalHeight) {
     // DONE: Clear old lines when we delete something
 
     // int row = nlines - ((prompt.length() + cursorPosition - 1) /
@@ -547,9 +551,8 @@ public class PromptTerminal implements Printable {
     sb.append(user.substring(pos, user.length()));
     sb.append(RESTORE_CURSOR);
     // updatePromptCursor(sb, terminalWidth, terminalHeight);
-    if (column == 1) {
+    if (column == 1 && user.length() > 0) {
       sb.append(user.charAt(pos - 1));
-    } else {
     }
   }
 
