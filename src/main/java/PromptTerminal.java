@@ -6,6 +6,10 @@ import java.util.concurrent.locks.ReentrantLock;
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
 
+interface Printable {
+  void print(String info);
+}
+
 class CompletionResult {
   public List<String> possibilities = null;
   public boolean modifyEnter = false;
@@ -28,7 +32,7 @@ interface CompletionProvider {
 }
 
 // TODO: Threadsafiness of at least displaying safely
-public class PromptTerminal {
+public class PromptTerminal implements Printable {
   public final ReentrantLock lock = new ReentrantLock();
   private final List<String> PROMPT_HISTORY = new ArrayList<String>();
 
@@ -529,7 +533,8 @@ public class PromptTerminal {
     // int row = nlines - ((prompt.length() + cursorPosition - 1) /
     // terminalWidth);
     int column = ((prompt.length() + cursorPosition) % (terminalWidth)) + 1;
-    // int column2 = ((prompt.length() + editable.length()) % (terminalWidth)) + 1;
+    // int column2 = ((prompt.length() + editable.length()) % (terminalWidth)) +
+    // 1;
 
     String user = editable.toString();
 
