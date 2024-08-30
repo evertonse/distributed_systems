@@ -470,7 +470,7 @@ public class PromptTerminal implements Printable {
     }
   }
 
-  private void updateNlines() {
+  synchronized private void updateNlines() {
     updateTerminalSize();
     if (prompt == null || editable == null) {
       return;
@@ -481,7 +481,7 @@ public class PromptTerminal implements Printable {
     promptLineCount = newNlines;
   }
 
-  public void clearPrompt(StringBuilder sb) {
+  synchronized public void clearPrompt(StringBuilder sb) {
     moveCursorToLastRow(sb);
     for (int i = 0; i < maxPromptLineCount; i++) {
       sb.append(MOVE_TO_START_AND_CLEAR);
@@ -526,7 +526,7 @@ public class PromptTerminal implements Printable {
 
   // DONE: See if the prompt needs to stay down, or if keeping it up is fine
   // https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x361.html
-  private void displayPrompt(StringBuilder sb, int terminalWidth,
+  synchronized private void displayPrompt(StringBuilder sb, int terminalWidth,
                              int terminalHeight) {
     // DONE: Clear old lines when we delete something
 
@@ -606,7 +606,7 @@ public class PromptTerminal implements Printable {
     return Integer.parseInt(dimensions[0]);
   }
 
-  public void print(String text) {
+  synchronized public void print(String text) {
 
     updateNlines();
 
