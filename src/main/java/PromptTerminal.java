@@ -576,9 +576,14 @@ public class PromptTerminal implements Printable {
     Process p = Runtime.getRuntime().exec(cmd);
     p.waitFor();
 
-    // byte[] output = p.getInputStream().readAllBytes();
-    // return new String(output).trim();
-    //     // Use a BufferedReader to read the output
+    //
+    // 'readAllBytes' is not available in older Java
+    //
+    /*
+       byte[] output = p.getInputStream().readAllBytes();
+       return new String(output).trim();
+    */
+    
     StringBuilder output = new StringBuilder();
     try (BufferedReader reader =
              new BufferedReader(new InputStreamReader(p.getInputStream()))) {

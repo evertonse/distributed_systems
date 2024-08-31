@@ -35,13 +35,7 @@ public class ChatClient {
   private static String group;
 
   private static final String[] RABBITMQ_HOSTS = {RABBITMQ_HOST, "localhost"};
-  private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
   private static RabbitMQProxy rabbit = null;
-
-  // Some MB
-  private static final long FILE_MAX_CHUNK_SIZE = 20L * 1024L * 1024L;
-  // private static final long FILE_MAX_CHUNK_SIZE = 50L * 1024L * 1024L;
-  // private static final long FILE_MAX_CHUNK_SIZE = 50L * 1024L;
 
   private static final ExecutorService executor =
       Executors.newCachedThreadPool();
@@ -84,8 +78,8 @@ public class ChatClient {
       if (terminal.shouldQuit()) {
         return;
       }
-      // Durable queue, TODO: check what durable even does? IMPORTANT: If we set
-      // durable to true, we get IOException
+      // DONE: Durable
+      // IMPORTANT: If we change durable seetting on existing queue, we get IOException
       rabbit.createUser(username);
 
       receiveTextThread.start();
@@ -199,6 +193,9 @@ public class ChatClient {
         }
       });
 
+  /////////////////////|////////////|//////////////////////
+  /////////////////////| Utilities  |/////////////////////
+  /////////////////////|////////////|////////////////////
   private static boolean isValidUsername(String username) {
     if (username == null || username.isEmpty() || username.contains(" ")) {
       return false;
@@ -223,6 +220,9 @@ public class ChatClient {
     return true;
   }
 
+  /////////////////////|///////////////////|//////////////////////
+  /////////////////////| Commands Handlers |/////////////////////
+  /////////////////////|///////////////////|////////////////////
   // No Args we get all users
   public static String handleListUsersCommand() {
     List<String> names = rabbit.apiGetAllQueues();
@@ -344,6 +344,37 @@ public class ChatClient {
     System.out.flush();
   }
 
+  private static String helpMenuString() {
+    StringBuilder sb = new StringBuilder();
+    // NOTE: Need \n\r because the cursor might be changed on these lines
+    // Effectively printing on the middle of column on that "new" line
+
+    String pad = "    ";
+
+    sb.append("Available commands:\n\r");
+    sb.append(pad + "@<user_name>: Set conversation to a certain user."
+              + "\n\r");
+    sb.append(pad + "#<group>: Set conversation to a certain group."
+              + "\n\r");
+    int len = COMMANDS.length;
+    for (int i = 0; i < len; i++) {
+      Command cmd = COMMANDS[i];
+      sb.append(pad + cmd.getHelp());
+      sb.append("\n\r");
+    }
+    sb.append("\n\rYou can use:\n\r")
+        .append(pad + ("'Arrow' left or right move cursor (can be modified "
+                       + "with 'Crtl').\n\r"))
+        .append(pad + "'Ctrl+W' delete a word.\n\r")
+        .append(pad + ("'TAB' to autocomplete (commands, filepaths, users, "
+                       + "groups, etc ...)."));
+    return sb.toString();
+  }
+
+  /////////////////////|////////////////|//////////////////////
+  /////////////////////|  AutoComplete  |/////////////////////
+  /////////////////////|////////////////|////////////////////
+
   private static List<String> completeCommand(String currentText) {
     List<String> possibleCompletion = new ArrayList<String>();
     for (Command cmd : COMMANDS) {
@@ -414,33 +445,6 @@ public class ChatClient {
     }
 
     return possibleCompletion;
-  }
-
-  private static String helpMenuString() {
-    StringBuilder sb = new StringBuilder();
-    // NOTE: Need \n\r because the cursor might be changed on these lines
-    // Effectively printing on the middle of column on that "new" line
-
-    String pad = "    ";
-
-    sb.append("Available commands:\n\r");
-    sb.append(pad + "@<user_name>: Set conversation to a certain user."
-              + "\n\r");
-    sb.append(pad + "#<group>: Set conversation to a certain group."
-              + "\n\r");
-    int len = COMMANDS.length;
-    for (int i = 0; i < len; i++) {
-      Command cmd = COMMANDS[i];
-      sb.append(pad + cmd.getHelp());
-      sb.append("\n\r");
-    }
-    sb.append("\n\rYou can use:\n\r")
-        .append(pad + ("'Arrow' left or right move cursor (can be modified "
-                       + "with 'Crtl').\n\r"))
-        .append(pad + "'Ctrl+W' delete a word.\n\r")
-        .append(pad + ("'TAB' to autocomplete (commands, filepaths, users, "
-                       + "groups, etc ...)."));
-    return sb.toString();
   }
 
   /////////////////////|///////////////|//////////////////////
