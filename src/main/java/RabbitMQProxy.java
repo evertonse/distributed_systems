@@ -343,6 +343,7 @@ public class RabbitMQProxy {
         printer.print("\033[" + 9999 + ";1H" +
                       PromptTerminal.MOVE_TO_START_AND_CLEAR +
                       PromptTerminal.MOVE_UP_ONE_LINE +
+                      PromptTerminal.MOVE_TO_START_AND_CLEAR +
                       animationFrames[i++ % animationFrames.length] +
                       " Connecting  to " + host /* + "\r\n" */);
         try {

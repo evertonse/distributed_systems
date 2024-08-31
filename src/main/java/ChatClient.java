@@ -357,33 +357,31 @@ public class ChatClient {
 
   private static List<String> completeUsersChat(String currentText,
                                                 String prefix) {
-    // TODO: Cache this
-    if (usersChat != null) {
-      return usersChat;
+    // DONE: Cache this
+    if (usersChat == null) {
+      usersChat = rabbit.apiGetAllQueues();
     }
     List<String> possibleCompletion = new ArrayList<String>();
-    for (String users : rabbit.apiGetAllQueues()) {
+    for (String users : usersChat) {
       if ((prefix + users).startsWith(currentText)) {
         possibleCompletion.add(prefix + users);
       }
     }
-    usersChat = possibleCompletion;
     return possibleCompletion;
   }
 
   private static List<String> completeGroupsChat(String currentText,
                                                  String prefix) {
-    // TODO: Cache this
-    if (groupsChat != null) {
-      return groupsChat;
+    // DONE: Cache this
+    if (groupsChat == null) {
+      groupsChat = rabbit.apiGetExchangers();
     }
     List<String> possibleCompletion = new ArrayList<String>();
-    for (String groups : rabbit.apiGetExchangers()) {
+    for (String groups : groupsChat) {
       if ((prefix + groups).startsWith(currentText)) {
         possibleCompletion.add(prefix + groups);
       }
     }
-    groupsChat = possibleCompletion;
     return possibleCompletion;
   }
 

@@ -1,8 +1,10 @@
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
+
 import sun.misc.Signal;
 import sun.misc.SignalHandler;
 
@@ -35,6 +37,7 @@ interface CompletionProvider {
 public class PromptTerminal implements Printable {
   public final ReentrantLock lock = new ReentrantLock();
   private final List<String> PROMPT_HISTORY = new ArrayList<String>();
+  private final boolean DEBUG = true;
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
   public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
@@ -85,12 +88,20 @@ public class PromptTerminal implements Printable {
 
   private void setResizeHandler() {
     // Setting lê handler for SIGWINCH (window change signal)
-    Signal.handle(new Signal("WINCH"), new SignalHandler() {
-      @Override
-      public void handle(Signal sig) {
-        updateNlines();
+    try {
+      Signal.handle(new Signal("WINCH"), new SignalHandler() {
+        @Override
+        public void handle(Signal sig) {
+          updateNlines();
+        }
+      });
+    } catch (IllegalArgumentException e) {
+      if (DEBUG) {
+        System.out.print(
+            "Warn: Could not setup 'Window Resize' handler. Text could be "
+            + "badly rendered when resizing.\n\r");
       }
-    });
+    }
   }
 
   private boolean isDelimiter(char c) {
@@ -245,8 +256,9 @@ public class PromptTerminal implements Printable {
   // increases
   Integer promptLineCount = 0;
   Integer maxPromptLineCount = 0;
-  Integer terminalWidth = 0;
-  Integer terminalHeight = 0;
+ // In case we can't set the width, we assume if verybig
+  Integer terminalWidth = 9999;
+  Integer terminalHeight = 1;
 
   class CompletionStorage extends CompletionResult {
     String previousWord = null;
@@ -467,16 +479,16 @@ public class PromptTerminal implements Printable {
       terminalHeight = size[0];
       terminalWidth = size[1];
     } catch (IOException | InterruptedException e) {
-      System.out.println("\rFailed to update terminal size: " + e.getMessage());
-      toCookedMode();
-      System.out.println("Goodbye :)");
-      System.exit(69);
+      if (DEBUG) {
+        System.out.print("\rFailed to update terminal size: " + e.getMessage() +
+                         "\n\r");
+      }
     }
   }
 
   synchronized private void updateNlines() {
     updateTerminalSize();
-    if (prompt == null || editable == null) {
+    if (prompt == null || editable == null || terminalWidth == 0) {
       return;
     }
     int wholePromptLength = prompt.length() + editable.length();
@@ -564,10 +576,22 @@ public class PromptTerminal implements Printable {
     Process p = Runtime.getRuntime().exec(cmd);
     p.waitFor();
 
-    byte[] output = p.getInputStream().readAllBytes();
-    return new String(output).trim();
+    // byte[] output = p.getInputStream().readAllBytes();
+    // return new String(output).trim();
+    //     // Use a BufferedReader to read the output
+    StringBuilder output = new StringBuilder();
+    try (BufferedReader reader =
+             new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        output.append(line).append(System.lineSeparator());
+      }
+    }
+
+    return output.toString().trim();
   }
 
+  // https://stackoverflow.com/questions/13104460/confusion-about-raw-vs-cooked-terminal-modes
   public void toRawMode() throws IOException, InterruptedException {
     ttyConfig = stty("-g").split(" ");
     stty("raw -echo");
