@@ -41,6 +41,7 @@ public class PromptTerminal implements Printable {
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
   public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
+  public static final String MOVE_CURSOR_TO_LAST_ROW ="\033[" + 9999 + ";1H"; 
   public static final String MOVE_TO_START_AND_CLEAR = "\r\u001B[K";
   public static final String MOVE_UP_ONE_LINE = "\u001B[1A"; // or "\033[A"
   public static final String MOVE_RIGHT = "\033[C";          // or "\033[A"
@@ -614,13 +615,13 @@ public class PromptTerminal implements Printable {
     System.out.println("\nTerminal has been restored to 'cooked' mode.");
   }
 
-  private int getTerminalWidth() throws IOException, InterruptedException {
+  public int getTerminalWidth() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return Integer.parseInt(dimensions[1]); // [1] is the number of columns
   }
 
-  private int[] getTerminalSize() throws IOException, InterruptedException {
+  public int[] getTerminalSize() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return new int[] {Integer.parseInt(dimensions[0]),
@@ -629,10 +630,10 @@ public class PromptTerminal implements Printable {
 
   // Function to move the cursor to the last row
   private void moveCursorToLastRow(StringBuilder sb) {
-    sb.append("\033[" + 9999 + ";1H");
+    sb.append(MOVE_CURSOR_TO_LAST_ROW);
   }
 
-  private int getTerminalHeight() throws IOException, InterruptedException {
+  public int getTerminalHeight() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return Integer.parseInt(dimensions[0]);

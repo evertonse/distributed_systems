@@ -243,6 +243,9 @@ public class RabbitMQProxy {
   }
 
   public boolean groupExists(String groupName) {
+    if (groupName == null) {
+      return false;
+    }
     // Using a Temporary channel
     // see: https://groups.google.com/g/rabbitmq-users/c/ZTfVwe_HYXc
     try (Channel tempChannel = connection.createChannel()) {
@@ -280,6 +283,9 @@ public class RabbitMQProxy {
   // Warn, this function is a bit slow because we create a temporary channel
   // everytime
   public boolean queueExists(String queueName) {
+    if (queueName == null) {
+      return false;
+    }
     try (Channel tempChannel = connection.createChannel()) {
       tempChannel.queueDeclarePassive(queueName);
       return true;
@@ -321,6 +327,35 @@ public class RabbitMQProxy {
     }
   }
 
+  public boolean isUserInGroup(String groupName, String userName) {
+    try {
+      String queueName = userName;
+
+      // Bind the user's queue to the group exchange
+      if (groupExists(groupName)) {
+        // We check if queue exist, and assume that the file transfer queue also
+        // exists NOTE: is this right?
+        if (queueExists(queueName)) {
+          List<String> names = apiGetQueuesBoundToExchange(groupName);
+          if (names == null || names.size() == 0) {
+            return false;
+          }
+          for (String name : names) {
+            if (name.equals(userName))
+              return true;
+          }
+          return false;
+        } else {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
   public void sendGroupMessage(Channel channel, String groupName,
                                byte[] message) throws IOException {
     channel.basicPublish(groupName, "", null, message);
@@ -334,16 +369,16 @@ public class RabbitMQProxy {
   // Try to connect and create the file, text and default channels
   public Connection tryConnection(Printable printer)
       throws IOException, TimeoutException {
+    String preamble = PromptTerminal.MOVE_TO_START_AND_CLEAR +
+                      PromptTerminal.MOVE_UP_ONE_LINE +
+                      PromptTerminal.MOVE_TO_START_AND_CLEAR;
     Thread loadingThread = new Thread(() -> {
       String[] animationFrames = {"|", "/", "-", "\\"};
       int i = 0;
 
       while (!Thread.currentThread().isInterrupted()) {
 
-        printer.print("\033[" + 9999 + ";1H" +
-                      PromptTerminal.MOVE_TO_START_AND_CLEAR +
-                      PromptTerminal.MOVE_UP_ONE_LINE +
-                      PromptTerminal.MOVE_TO_START_AND_CLEAR +
+        printer.print(PromptTerminal.MOVE_CURSOR_TO_LAST_ROW + preamble +
                       animationFrames[i++ % animationFrames.length] +
                       " Connecting  to " + host /* + "\r\n" */);
         try {
@@ -375,10 +410,12 @@ public class RabbitMQProxy {
         try {
           connection = factory.newConnection();
         } catch (Exception e) {
-          printer.print("\nSwitching to the next host...");
+          printer.print(preamble + preamble +
+                        "Switching to the next host...\n\r");
         }
       } catch (Exception e) {
-        printer.print("\r\n\rFailed to connect to " + host + ".");
+        printer.print(preamble + preamble + "Failed to connect to " + host +
+                      ".\n\r");
       }
 
       // Switch to the next host
@@ -386,7 +423,7 @@ public class RabbitMQProxy {
     }
 
     loadingThread.interrupt();
-    System.out.println("\n\rConnected to " + host + "!");
+    printer.print("\n\rConnected to " + host + "!\n\r");
 
     if (connection != null) {
       defaultChannel = connection.createChannel();

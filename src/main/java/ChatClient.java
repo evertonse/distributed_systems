@@ -79,7 +79,8 @@ public class ChatClient {
         return;
       }
       // DONE: Durable
-      // IMPORTANT: If we change durable seetting on existing queue, we get IOException
+      // IMPORTANT: If we change durable seetting on existing queue, we get
+      // IOException
       rabbit.createUser(username);
 
       receiveTextThread.start();
@@ -118,8 +119,11 @@ public class ChatClient {
           handleCommand(input);
         } else {
           if (!input.isEmpty() && input != null) {
-
             executor.execute(() -> {
+              if (group != null && !rabbit.isUserInGroup(group, username)) {
+                terminal.print("Você não está no group: \"" + group +
+                               "\".\n\r");
+              }
               boolean ok =
                   rabbit.sendTextMessage(username, recipient, group, input);
               if (!ok) {
@@ -261,10 +265,10 @@ public class ChatClient {
   public static String handleUploadCommand(String filePath) {
     File file = new File(filePath);
     if (!file.exists()) {
-      return "File not found: " + filePath;
+      return "Arquivo não encontrado: \"" + filePath + "\"";
     }
     if (file.isDirectory()) {
-      return String.format("File \"%s\" is a directory.", filePath);
+      return String.format("\"%s\" é um diretório.", filePath);
     }
 
     String destination = (group != null) ? group : recipient;
@@ -280,8 +284,15 @@ public class ChatClient {
       boolean success = false;
       for (int attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          rabbit.sendChunkedRetryingFileMessage(file, username, recipient,
-                                                group, terminal);
+
+          if (group != null && !rabbit.isUserInGroup(group, username)) {
+            terminal.print("Não da pra enviar \"" + file.getName() +
+                           "\", pois você não está no grupo: \"" + group +
+                           "\".\n\r");
+          } else {
+            rabbit.sendChunkedRetryingFileMessage(file, username, recipient,
+                                                  group, terminal);
+          }
           success = true;
           break; // Exit the loop if successful
         } catch (IOException e) {
@@ -319,7 +330,7 @@ public class ChatClient {
       }
     }).start();
 
-    return ("Enviando \"" + filePath + "\" para " + destination + ".");
+    return ("Enviando \"" + filePath + "\" para \"" + destination + "\".");
   }
 
   private static void handleCommand(String command) throws IOException {
@@ -365,6 +376,7 @@ public class ChatClient {
     sb.append("\n\rYou can use:\n\r")
         .append(pad + ("'Arrow' left or right move cursor (can be modified "
                        + "with 'Crtl').\n\r"))
+        .append(pad + ("'Arrow' up or down to move through history.\n\r"))
         .append(pad + "'Ctrl+W' delete a word.\n\r")
         .append(pad + ("'TAB' to autocomplete (commands, filepaths, users, "
                        + "groups, etc ...)."));
