@@ -41,7 +41,7 @@ public class PromptTerminal implements Printable {
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
   public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
-  public static final String MOVE_CURSOR_TO_LAST_ROW ="\033[" + 9999 + ";1H"; 
+  public static final String MOVE_CURSOR_TO_LAST_ROW ="\033[" + 9999 + ";1H";
   public static final String MOVE_TO_START_AND_CLEAR = "\r\u001B[K";
   public static final String MOVE_UP_ONE_LINE = "\u001B[1A"; // or "\033[A"
   public static final String MOVE_RIGHT = "\033[C";          // or "\033[A"

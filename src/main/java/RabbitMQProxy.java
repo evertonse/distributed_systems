@@ -39,15 +39,16 @@ public class RabbitMQProxy {
   public Channel defaultChannel = null;
   public Channel fileChannel = null;
   public Channel textChannel = null;
-  private Connection connection = null;
+  private Connection defaultConnection = null;
+  private Connection fileConnection = null;
   private ConnectionFactory factory;
 
-  private static final int CONNECTION_TIMEOUT = 5000;
+  private static final int CONNECTION_TIMEOUT = 10000;
   private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
   private static final String FILE_DEFAULT_FOLDER = "downloads";
 
   // Some MB
-  private static final long FILE_MAX_CHUNK_SIZE = 20L * 1024L * 1024L;
+  private static final long FILE_MAX_CHUNK_SIZE = 5L * 1024L * 1024L;
   // private static final long FILE_MAX_CHUNK_SIZE = 50L * 1024L * 1024L;
   // private static final long FILE_MAX_CHUNK_SIZE = 50L * 1024L;
 
@@ -248,7 +249,7 @@ public class RabbitMQProxy {
     }
     // Using a Temporary channel
     // see: https://groups.google.com/g/rabbitmq-users/c/ZTfVwe_HYXc
-    try (Channel tempChannel = connection.createChannel()) {
+    try (Channel tempChannel = defaultConnection.createChannel()) {
       tempChannel.exchangeDeclarePassive(groupName);
       return true;
     } catch (AlreadyClosedException e) {
@@ -286,7 +287,7 @@ public class RabbitMQProxy {
     if (queueName == null) {
       return false;
     }
-    try (Channel tempChannel = connection.createChannel()) {
+    try (Channel tempChannel = defaultConnection.createChannel()) {
       tempChannel.queueDeclarePassive(queueName);
       return true;
     } catch (AlreadyClosedException e) {
@@ -392,24 +393,22 @@ public class RabbitMQProxy {
     int hostIndex = 0;
 
     loadingThread.start();
-    factory.setConnectionTimeout(CONNECTION_TIMEOUT);
-    factory.setHandshakeTimeout(CONNECTION_TIMEOUT);
 
-    factory.setAutomaticRecoveryEnabled(true);
-    factory.setNetworkRecoveryInterval(10000); // 10 seconds
-
-    factory.setRequestedHeartbeat(60);
-
-    connection = null;
-    while (connection == null) {
+    defaultConnection = null;
+    while (defaultConnection == null || fileConnection == null) {
       host = possibleHosts[hostIndex];
-
       factory.setHost(host);
       try {
         Thread.sleep(400); // initial wait just to show animation
         try {
-          connection = factory.newConnection();
+          if (defaultConnection == null) {
+            defaultConnection = factory.newConnection();
+          }
+          if (fileConnection == null) {
+            fileConnection = factory.newConnection();
+          }
         } catch (Exception e) {
+          // [AMQP Connection 44.199.104.169:5672] WARN com.rabbitmq.client.impl.ForgivingException
           printer.print(preamble + preamble +
                         "Switching to the next host...\n\r");
         }
@@ -425,12 +424,12 @@ public class RabbitMQProxy {
     loadingThread.interrupt();
     printer.print("\n\rConnected to " + host + "!\n\r");
 
-    if (connection != null) {
-      defaultChannel = connection.createChannel();
-      textChannel = connection.createChannel();
-      fileChannel = connection.createChannel();
+    if (defaultConnection != null) {
+      defaultChannel = defaultConnection.createChannel();
+      textChannel = defaultConnection.createChannel();
+      fileChannel = fileConnection.createChannel();
     }
-    return connection;
+    return defaultConnection;
   }
 
   public String removeGroup(String groupName) {
@@ -484,13 +483,16 @@ public class RabbitMQProxy {
     factory.setConnectionTimeout(CONNECTION_TIMEOUT);
     factory.setHandshakeTimeout(CONNECTION_TIMEOUT);
     factory.setAutomaticRecoveryEnabled(true);
-    factory.setNetworkRecoveryInterval(10000); // 10 seconds
-    factory.setRequestedHeartbeat(60);
+    factory.setNetworkRecoveryInterval(1000);
+    // factory.setRequestedHeartbeat(60);
   }
 
   public void shutdown() throws IOException {
-    if (connection != null) {
-      connection.close();
+    if (defaultConnection != null) {
+      defaultConnection.close();
+    }
+    if (fileConnection != null) {
+      fileConnection.close();
     }
   }
 
@@ -829,14 +831,15 @@ public class RabbitMQProxy {
             partFileDir.mkdirs();
           }
 
-          String partFilePath =
+          File partFilePath =
               new File(partFileDir,
                        String.format(FileUtils.FILE_PART_FORMAT_STRING,
-                                     partNumber, totalParts))
-                  .toString();
+                                     partNumber, totalParts));
 
-          boolean ok =
-              FileUtils.saveFile(partFilePath, fileContentBytes, false);
+
+          // If already exists then we don't save again
+          boolean ok = partFilePath.exists() || FileUtils.saveFile(partFilePath.toString(), fileContentBytes, false);
+              
           if (ok) {
 
             printer.print(String.format(
