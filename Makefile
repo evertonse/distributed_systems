@@ -39,4 +39,37 @@ reset:
 	sudo rabbitmqctl start_app
 	sudo rabbitmq-plugins enable rabbitmq_management
 
-.PHONY: markdown run clean reset zip random-file
+#NOTE: Observer behaviour with `sudo tcpdump -vvv -n -i any tcp port 6969`
+# The "-n" option is used to translate the hostname and ports. Without this option, the output displays hostname which is converted to it's corresponding IP address.
+# A: I want to talk to you
+# B: I acknowledge that you want to talk to me, I also want to talk to you
+# A: I acknowledge that you want to talk to me
+# A: The weather today is nice
+# B: Indeed
+# B: The wind makes me want to go for a walk
+# A: Indeed
+#
+# A: I need to go now
+# B: I acknowledge that you need to go
+# B: I need to go now
+# A: I acknowledge that you need to go
+tcp:
+	javac ./examples/TCP.java && java -cp ./examples TCP $(ARGS)
+	
+
+#NOTE: Observer behaviour with `sudo tcpdump -i any udp port 6969`
+udp:
+	javac ./examples/UDP.java && java -cp ./examples UDP $(ARGS)
+
+dns:
+	javac ./examples/DNSClient.java && java -cp ./examples DNSClient $(ARGS)
+
+dns.resolver:
+	javac ./examples/SimpleDNSResolver.java && java -cp ./examples SimpleDNSResolver $(ARGS)
+
+cexample:
+	sh ./examples/$(FILE) $(ARGS)
+     
+
+
+.PHONY: markdown run clean reset zip random-file tcp udp

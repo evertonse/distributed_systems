@@ -1,5 +1,8 @@
 *.jar
 *.class
+*.bin
+log
+log**
 
 .classpath
 .last_yank.txt
@@ -13,3 +16,4 @@ assets/
 target/
 downloads/**
 random_text.txt
+tags
