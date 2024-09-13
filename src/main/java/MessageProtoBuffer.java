@@ -27,7 +27,7 @@ public final class MessageProtoBuffer {
          * </pre>
          *
          * <code>string sender = 1;</code>
-         * 
+         *
          * @return The sender.
          */
         java.lang.String getSender();

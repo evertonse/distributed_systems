@@ -24,6 +24,7 @@ public class ChatClient {
   private static final String RABBITMQ_PASSWORD = "password";
   private static final String SPECIAL_CHARS = "!#@-/";
   private static final boolean DEBUG = false;
+  private static final boolean CHECK_IF_USER_IS_IN_GROUP_BEFORE = false;
 
   private static List<String> usersChat = null;
   private static List<String> groupsChat = null;
@@ -120,7 +121,7 @@ public class ChatClient {
         } else {
           if (!input.isEmpty() && input != null) {
             executor.execute(() -> {
-              if (group != null && !rabbit.isUserInGroup(group, username)) {
+              if (group != null && CHECK_IF_USER_IS_IN_GROUP_BEFORE  && !rabbit.isUserInGroup(group, username)) {
                 terminal.print("Você não está no group: \"" + group +
                                "\".\n\r");
               }
@@ -285,7 +286,7 @@ public class ChatClient {
       for (int attempt = 1; attempt <= maxRetries; attempt++) {
         try {
 
-          if (group != null && !rabbit.isUserInGroup(group, username)) {
+          if (group != null && CHECK_IF_USER_IS_IN_GROUP_BEFORE  && !rabbit.isUserInGroup(group, username)) {
             terminal.print("Não da pra enviar \"" + file.getName() +
                            "\", pois você não está no grupo: \"" + group +
                            "\".\n\r");
