@@ -59,7 +59,7 @@ public class ChatClient {
     private static int cursorPosition = 0;
     private static int historyPosition = 0;
     private static AMQP.BasicProperties amqp_props = null;
-    private static StringBuilder editable_prompt_buffer = new StringBuilder();
+    private static StringBuffer editable_prompt_buffer = new StringBuffer();
     private static final String[] HOSTS = { RABBITMQ_HOST, "localhost" };
     private static String currentHost = HOSTS[0];
     private static String rabbitMqApiUrl = null;
