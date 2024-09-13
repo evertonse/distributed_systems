@@ -23,7 +23,7 @@ public class ChatClient {
   private static final String RABBITMQ_USERNAME = "admin";
   private static final String RABBITMQ_PASSWORD = "password";
   private static final String SPECIAL_CHARS = "!#@-/";
-  private static final boolean DEBUG = true;
+  private static final boolean DEBUG = false;
 
   private static List<String> usersChat = null;
   private static List<String> groupsChat = null;

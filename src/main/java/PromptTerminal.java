@@ -37,7 +37,7 @@ interface CompletionProvider {
 public class PromptTerminal implements Printable {
   public final ReentrantLock lock = new ReentrantLock();
   private final List<String> PROMPT_HISTORY = new ArrayList<String>();
-  private final boolean DEBUG = true;
+  private final boolean DEBUG = false;
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
   public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
