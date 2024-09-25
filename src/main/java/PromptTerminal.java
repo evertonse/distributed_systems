@@ -332,7 +332,8 @@ public class PromptTerminal implements Printable {
 
       cursorPosition = cs.startWordIndex + completion.length();
       editable.setLength(cursorPosition);
-      if (editable.toString().endsWith(FileUtils.separator)) {
+
+      if (editable.toString().endsWith("/") || editable.toString().endsWith(FileUtils.separator)) {
         cs.modifyEnter = true;
       }
     }

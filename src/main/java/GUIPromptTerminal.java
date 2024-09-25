@@ -92,9 +92,6 @@ public class GUIPromptTerminal extends PromptTerminal {
       cs.previousWord   = editable.substring(cs.startWordIndex, cursorPosition());
     }
 
-      if (editable.toString().endsWith(FileUtils.separator)) {
-        cs.modifyEnter = true;
-      }
 
     // We garanteed no null pointer accessing because we check for nullness
     // before accessing size method using short circuiting
@@ -116,12 +113,15 @@ public class GUIPromptTerminal extends PromptTerminal {
       int newCursor = cs.startWordIndex + completion.length();
       editable.setLength(newCursor);
 
-      if (editable.toString().endsWith(FileUtils.separator)) {
-        cs.modifyEnter = true;
-      }
 
       inputPrompt.setText(editable.toString());
       inputPrompt.setCaretPosition(cursorSnapToInBounds(newCursor));
+
+      String finalText = inputPrompt.getText();
+      System.out.printf("finalText= %s\n",finalText);
+      if (finalText.endsWith("/") || finalText.endsWith(FileUtils.separator)) {
+        cs.modifyEnter = true;
+      }
     }
     return cs;
   }
@@ -194,6 +194,7 @@ public class GUIPromptTerminal extends PromptTerminal {
 
   private void createAndShowGUI() {
     int FONT_SIZE = 21;
+    int LABEL_HORZIONTAL_SIZE = 175;
     frame = new JFrame("Chat Window");
 
     frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -307,7 +308,7 @@ public class GUIPromptTerminal extends PromptTerminal {
     }
 
     promptLabel = new JLabel(this.prompt);
-    promptLabel.setPreferredSize(new Dimension(120, 35));
+    promptLabel.setPreferredSize(new Dimension(LABEL_HORZIONTAL_SIZE, 35));
     promptLabel.setFont(new Font(Font.MONOSPACED, Font.BOLD, FONT_SIZE+2));
     promptLabel.setHorizontalAlignment(SwingConstants.CENTER);
     promptLabel.setVerticalAlignment(SwingConstants.CENTER);
