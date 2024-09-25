@@ -27,8 +27,9 @@ No sistema operacional Windows, é possível clicar com o botão direito do mous
 
 ![Java Runtime](./img/sd-windows-open_with_java_runtime.png)
 
-Observação: Devido à falta de suporte a `ANSI Escape Codes` no Windows, o sistema detecta automaticamente o sistema operacional e executa apenas no modo GUI.
-Esses `ANSI Escape Codes` são necessários para manter um experiencia legal ao digitar e não ter suas mensagens ocludidas ao receber novas mensagens.
+Observação: Devido à falta de suporte a `ANSI Escape Codes`, e dificuldade para usar ``cooked mode`` no terminal Windows, o sistema detecta automaticamente o sistema operacional e executa apenas no modo GUI.
+
+Esses `ANSI Escape Codes` são necessários para manter uma experiencia legal ao digitar no terminal e não ter suas mensagens ocludidas ao receber novas mensagens. Em sistemas Unix pode usar o modo terminal tranquilamente.
 
 
 ## Projeto
