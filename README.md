@@ -34,9 +34,22 @@ Esses `ANSI Escape Codes` são necessários para manter uma experiencia legal ao
 
 ## Projeto
 
+- Modo Gui
+
+![Gui Mode](./img/sd-gui.png)
+
+- Modo Terminal
+
+![Terminal Mode](./img/sd-terminal.png)
+
+- Envio de Arquivos por partes
+
+![Seding Files](./img/sd-files.png)
+
+
 Veja ``etapas.md`` para ver a capacidade basica do projeto.
 
-Além dessas capacidades, temos supporte a auto completar de caminhos para arquivos, comandos, usuários do rabbitmq, groupos. Basta aperta TAB.
+Além dessas capacidades, temos supporte a commandos extras como "!whoami". Use  "!help" para ver todos os comandos. Ademais, temos:
 
 - Auto-completar: O sistema oferece suporte ao auto-completar para caminhos de arquivos, comandos, usuários e grupos do RabbitMQ. Basta pressionar a tecla TAB para acessar essas sugestões.
 
@@ -50,17 +63,6 @@ Além dessas capacidades, temos supporte a auto completar de caminhos para arqui
 
 
 
-- Modo Gui
-
-![Gui Mode](./img/sd-gui.png)
-
-- Modo Terminal
-
-![Terminal Mode](./img/sd-terminal.png)
-
-- Envio de Arquivos por partes
-
-![Seding Files](./img/sd-files.png)
 
 
 
