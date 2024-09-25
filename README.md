@@ -23,11 +23,12 @@ java -jar <arquivo_jar>
 ```
 
 ### Windows
-No windows é possivel clickar com o botão direito e rodar com o Java Runtime
+No sistema operacional Windows, é possível clicar com o botão direito do mouse no arquivo `.jar` e selecionar a opção "Abrir com Java Runtime".
 
 ![Java Runtime](./img/sd-windows-open_with_java_runtime.png)
 
-Como no SO Windows não tem supporte a ``Ansci Escape Codes``, detectamos os OS e rodamos apenas no modo GUI.
+Observação: Devido à falta de suporte a `ANSI Escape Codes` no Windows, o sistema detecta automaticamente o sistema operacional e executa apenas no modo GUI.
+Esses `ANSI Escape Codes` são necessários para manter um experiencia legal ao digitar e não ter suas mensagens ocludidas ao receber novas mensagens.
 
 
 ## Projeto
@@ -36,9 +37,16 @@ Veja ``etapas.md`` para ver a capacidade basica do projeto.
 
 Além dessas capacidades, temos supporte a auto completar de caminhos para arquivos, comandos, usuários do rabbitmq, groupos. Basta aperta TAB.
 
-No modo Terminal, também mantemos o prompt visivel a todo momento, se ser ocluso por novas mensagens chegando.
+- Auto-completar: O sistema oferece suporte ao auto-completar para caminhos de arquivos, comandos, usuários e grupos do RabbitMQ. Basta pressionar a tecla TAB para acessar essas sugestões.
 
-O sistema de recebimento de arquivos é mais robusto no quesito que apenas envia o Ack para rabbitmq ao realmente escrever o arquivo em disco. Ademais, o arquivo é possivelmente enviado por partes para não sobrecarregar o servidor.
+- Edição: A linha onde se escreve suporta edição mais ergonomica, como deletar uma palavra com crtl+w, ou pular palavra com crtl+seta.
+
+- Historico de texto: O sistema lembra dos ultimos texto ou comandos enviados pelo usuário. Com a seta para cima ou para baixo podemos selecionar esses comandos por ordem de envio.
+
+- Modo Terminal: O prompt permanece visível durante toda a execução, mesmo quando novas mensagens estão sendo recebidas, garantindo uma melhor experiência de usuário.
+
+- Envio de Arquivos: O sistema envia um reconhecimento (Ack) ao RabbitMQ somente após a confirmação de que o arquivo foi gravado em disco. Além disso, os arquivos podem ser enviados em partes, evitando sobrecarga no servidor.
+
 
 
 - Modo Gui
@@ -55,8 +63,9 @@ O sistema de recebimento de arquivos é mais robusto no quesito que apenas envia
 
 
 
-## Testado com as seguintes configurações
-
+## Configurações Testadas
+As seguintes versões de software foram utilizadas para testar o projeto. Mesmo assim foi feito um esforço
+para utilizar o menor possivel de features atuais e a compilação foi configurada para usar a menor versão do java runtime possivel.
 
     $ mvn --version
     Apache Maven 3.9.8 (36645f6c9b5079805ea5009217e36f2cffd34256)
@@ -70,7 +79,7 @@ O sistema de recebimento de arquivos é mais robusto no quesito que apenas envia
     libprotoc 27.3
 
 
-## ProtocolBufferers Setup
+## Configuração do Protocol Buffers
 
 
 - Instalação do compilador protoc
@@ -86,6 +95,6 @@ protoc --java_out=src/main/java/ src/main/proto/message.proto
 
 ```
 
-## Rabbitmq Setup
+## Configuração do RabbitMQ
 
-Leia ``rabbitmq.md``
+Para mais informações sobre a configuração do RabbitMQ, consulte o arquivo ``rabbitmq.md``
