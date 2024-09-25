@@ -12,6 +12,7 @@ import java.nio.file.StandardOpenOption;
 public final class FileUtils {
   public static final String FILE_PART_FORMAT_STRING = "part_%d_of_%d";
   public static final String FILE_PART_DIR_SUFFIX = "_parts";
+  public static final String separator = File.separator;
 
   public static boolean saveFile(String filePath, byte[] fileContentBytes,
                                  boolean append) {

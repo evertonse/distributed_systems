@@ -370,16 +370,21 @@ public class RabbitMQProxy {
   // Try to connect and create the file, text and default channels
   public Connection tryConnection(Printable printer)
       throws IOException, TimeoutException {
-    String preamble = PromptTerminal.MOVE_TO_START_AND_CLEAR +
-                      PromptTerminal.MOVE_UP_ONE_LINE +
-                      PromptTerminal.MOVE_TO_START_AND_CLEAR;
+    StringBuilder sb = new StringBuilder();
+    printer.moveToStartAndClear(sb);
+    printer.moveCursorUp(sb, 1); // MOVE_UP_ONE_LINE
+    printer.moveToStartAndClear(sb);
+    String preamble = sb.toString();
+
     Thread loadingThread = new Thread(() -> {
       String[] animationFrames = {"|", "/", "-", "\\"};
       int i = 0;
 
       while (!Thread.currentThread().isInterrupted()) {
 
-        printer.print(PromptTerminal.MOVE_CURSOR_TO_LAST_ROW + preamble +
+        StringBuilder innerSb = new StringBuilder();
+        printer.moveCursorToLastRow(innerSb);
+        printer.print(innerSb.toString() + preamble +
                       animationFrames[i++ % animationFrames.length] +
                       " Connecting  to " + host /* + "\r\n" */);
         try {

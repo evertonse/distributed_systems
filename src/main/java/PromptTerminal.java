@@ -9,7 +9,19 @@ import sun.misc.Signal;
 import sun.misc.SignalHandler;
 
 interface Printable {
-  void print(String info);
+  void moveCursorUp(StringBuilder sb, int rows);
+  void moveToStartAndClear(StringBuilder sb);
+  void moveCursorToLastRow(StringBuilder sb);
+
+  void    print(String info);
+  void    toRawMode() throws IOException, InterruptedException;
+  String  readLine() throws IOException, InterruptedException;
+  void    setPrompt(String newPrompt);
+  boolean shouldQuit();
+  void    enableCompletion();
+  void    disableCompletion();
+  void    toCookedMode();
+  void    clear();
 }
 
 class CompletionResult {
@@ -36,7 +48,6 @@ interface CompletionProvider {
 // TODO: Threadsafiness of at least displaying safely
 public class PromptTerminal implements Printable {
   public final ReentrantLock lock = new ReentrantLock();
-  private final List<String> PROMPT_HISTORY = new ArrayList<String>();
   private final boolean DEBUG = false;
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
@@ -53,14 +64,15 @@ public class PromptTerminal implements Printable {
   private static final int LEFT_BRACKET = 91;
   private static final int SHIFT_TAB_CODE = 90;
 
-  private CompletionProvider completionProvider;
+  protected CompletionProvider completionProvider;
   private InputStreamReader stdind_reader = new InputStreamReader(System.in);
 
-  private boolean running = true;
-  private String prompt = "";
-  private boolean completionEnabled = false;
+  protected boolean running = true;
+  protected String  prompt = "";
+  protected boolean completionEnabled = false;
 
-  private int historyPosition = 0;
+  protected final List<String> PROMPT_HISTORY = new ArrayList<String>();
+  protected int historyPosition = 0;
 
   // Thread-safe version of StringBuilder
   private StringBuffer editable = new StringBuffer();
@@ -105,12 +117,12 @@ public class PromptTerminal implements Printable {
     }
   }
 
-  private boolean isDelimiter(char c) {
+  protected boolean isDelimiter(char c) {
     return c == '-' || c == '/' || c == '!' || c == '@' || c == '#' ||
         c == '.' || Character.isWhitespace(c);
   }
 
-  private boolean isDelimiter(char c, String ignore) {
+  protected boolean isDelimiter(char c, String ignore) {
     for (char i : ignore.toCharArray()) {
       if (c == i) {
         return false;
@@ -171,7 +183,7 @@ public class PromptTerminal implements Printable {
     return startPosition;
   }
 
-  private static int clamp(int value, int min, int max) {
+  protected static int clamp(int value, int min, int max) {
     if (value < min) {
       return min;
     } else if (value > max) {
@@ -289,7 +301,7 @@ public class PromptTerminal implements Printable {
     }
   }
 
-  private static int properMod(int a, int b) { return ((a % b) + b) % b; }
+  protected static int properMod(int a, int b) { return ((a % b) + b) % b; }
 
   private CompletionStorage handleAutoCompletion(CompletionStorage _cs,
                                                  int val) {
@@ -320,6 +332,9 @@ public class PromptTerminal implements Printable {
 
       cursorPosition = cs.startWordIndex + completion.length();
       editable.setLength(cursorPosition);
+      if (editable.toString().endsWith(FileUtils.separator)) {
+        cs.modifyEnter = true;
+      }
     }
     return cs;
   }
@@ -450,7 +465,7 @@ public class PromptTerminal implements Printable {
     return "";
   }
 
-  private void moveCursorUp(StringBuilder sb, int rows) {
+  public void moveCursorUp(StringBuilder sb, int rows) {
     if (rows > 0) {
       // ANSI escape code to move the cursor up by the specified number of rows
       sb.append("\033[" + rows + "A");
@@ -615,13 +630,13 @@ public class PromptTerminal implements Printable {
     System.out.println("\nTerminal has been restored to 'cooked' mode.");
   }
 
-  public int getTerminalWidth() throws IOException, InterruptedException {
+  private int getTerminalWidth() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return Integer.parseInt(dimensions[1]); // [1] is the number of columns
   }
 
-  public int[] getTerminalSize() throws IOException, InterruptedException {
+  private int[] getTerminalSize() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return new int[] {Integer.parseInt(dimensions[0]),
@@ -629,11 +644,15 @@ public class PromptTerminal implements Printable {
   }
 
   // Function to move the cursor to the last row
-  private void moveCursorToLastRow(StringBuilder sb) {
+  public void moveCursorToLastRow(StringBuilder sb) {
     sb.append(MOVE_CURSOR_TO_LAST_ROW);
   }
 
-  public int getTerminalHeight() throws IOException, InterruptedException {
+  public void moveToStartAndClear(StringBuilder sb) {
+     sb.append(MOVE_TO_START_AND_CLEAR);
+  }
+
+  private int getTerminalHeight() throws IOException, InterruptedException {
     String size = stty("size");
     String[] dimensions = size.split(" ");
     return Integer.parseInt(dimensions[0]);

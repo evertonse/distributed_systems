@@ -23,7 +23,7 @@ public class ChatClient {
   private static final String RABBITMQ_USERNAME = "admin";
   private static final String RABBITMQ_PASSWORD = "password";
   private static final String SPECIAL_CHARS = "!#@-/";
-  private static final boolean DEBUG = false;
+  private static final boolean DEBUG = System.getProperty("DEBUG", "false").equals("true");
   private static final boolean CHECK_IF_USER_IS_IN_GROUP_BEFORE = false;
 
   private static List<String> usersChat = null;
@@ -41,10 +41,37 @@ public class ChatClient {
   private static final ExecutorService executor =
       Executors.newCachedThreadPool();
 
+  static boolean GUI = false;
+
   public static void main(String[] args) throws IOException, TimeoutException {
 
-    terminal.clear();
+    final String OS = System.getProperty("os.name").toLowerCase();
+    if (OS.contains("win")) {
+        System.out.println("Windows OS detected, because windows terminal does not support terminal editing and ansi escape code, we are using GUI\n");
+        GUI = true;
+    }
 
+    if (args.length > 0) {
+      if (GUI == false && args[0].equals("gui")) {
+        GUI = true;
+      }
+    }
+
+    if (DEBUG) {
+      System.out.println("Running in DEBUG mode");
+    }
+
+
+    if (GUI) {
+        terminal = new GUIPromptTerminal(completion);
+        GUI = true;
+        System.out.println("Running using GUI\n");
+    } else {
+        System.out.println("Assuming Unix env\n");
+        terminal = new PromptTerminal(completion);
+    }
+
+    terminal.clear();
     rabbit =
         new RabbitMQProxy(RABBITMQ_USERNAME, RABBITMQ_PASSWORD, RABBITMQ_HOSTS);
 
@@ -57,20 +84,33 @@ public class ChatClient {
     try {
 
       rabbit.tryConnection(terminal);
-      System.out.println("Raw mode enabled.\n\r"
-                         + "Press 'Crtl+c' once to clear and again to quit.\n\r"
-                         + "Type '!help' to see available commands after "
-                         + "entering your username.\n\r"
-                         + "Use 'TAB' to autocomplete.");
+      String startHelp = (
+        "Raw mode enabled.\n\r"
+        + "Press 'Crtl+c' once to clear and again to quit.\n\r"
+        + "Type '!help' to see available commands after "
+        + "entering your username.\n\r"
+        + "Use 'TAB' to autocomplete."
+        + "Type your username."
+      );
+      if(GUI) {
+        terminal.clear();
+        terminal.print(startHelp);
+      } else {
+        System.out.println(startHelp);
+      }
+
 
       terminal.toRawMode();
 
       terminal.setPrompt("User: ");
       username = terminal.readLine();
+      String userNameHelp = "Username can't contain spaces, special characters (" + SPECIAL_CHARS + "),  neither be empty.";
       while (!terminal.shouldQuit() && !isValidUsername(username)) {
-        System.out.println(
-            "Username can't contain spaces, special characters (" +
-            SPECIAL_CHARS + "),  neither be empty.");
+        if(GUI) {
+          terminal.print(userNameHelp);
+        } else {
+          System.out.println(userNameHelp);
+        }
         username = terminal.readLine();
       }
 
@@ -103,9 +143,11 @@ public class ChatClient {
         if (input.startsWith("@")) {
           String newRecipient = input.substring(1);
           if (!isValidUsername(newRecipient)) {
-            System.out.println(
-                "Usernames can't contain spaces, special characters (" +
-                SPECIAL_CHARS + "),  neither be empty.");
+            if(GUI) {
+              terminal.print(userNameHelp);
+            } else {
+              System.out.println(userNameHelp);
+            }
           } else {
             recipient = newRecipient;
             group = null;
@@ -158,45 +200,46 @@ public class ChatClient {
       receiveFileThread.interrupt();
     }
   }
-
-  private static final PromptTerminal terminal =
-      new PromptTerminal(new CompletionProvider() {
-        public CompletionResult getCompletionPossibilities(
-            String line, String wordUnderCursor) {
-          CompletionResult cr = new CompletionResult();
-          if (line.startsWith("@")) {
-            cr.possibilities = completeUsersChat(wordUnderCursor, "@");
-          } else if (line.startsWith("#")) {
-            cr.possibilities = completeGroupsChat(wordUnderCursor, "#");
-          } else if (line.contains("!upload")) {
-            cr.possibilities = completeFilePath(wordUnderCursor);
-            if (wordUnderCursor.endsWith(File.separator)) {
-              cr.modifyEnter = true;
-            } else {
-              cr.modifyEnter = false;
-            }
-          } else if (line.contains("!delFromGroup") ||
-                     line.contains("!addUser")) {
-            cr.possibilities = new ArrayList<String>();
-            for (String string : completeGroupsChat(wordUnderCursor, "")) {
-              cr.possibilities.add(string);
-            }
-            for (String string : completeUsersChat(wordUnderCursor, "")) {
-              cr.possibilities.add(string);
-            }
-          } else if (line.contains("!removeGroup") ||
-                     line.contains("!listUsers")) {
-            cr.possibilities = new ArrayList<String>();
-            for (String string : completeGroupsChat(wordUnderCursor, "")) {
-              cr.possibilities.add(string);
-            }
-          } else if (!line.contains(" ")) {
-            cr.possibilities = completeCommand(wordUnderCursor);
-          } else {
-          }
-          return cr;
+  static CompletionProvider completion = new CompletionProvider() {
+    public CompletionResult getCompletionPossibilities(
+        String line, String wordUnderCursor) {
+      CompletionResult cr = new CompletionResult();
+      if (line.startsWith("@")) {
+        cr.possibilities = completeUsersChat(wordUnderCursor, "@");
+      } else if (line.startsWith("#")) {
+        cr.possibilities = completeGroupsChat(wordUnderCursor, "#");
+      } else if (line.contains("!upload")) {
+        cr.possibilities = completeFilePath(wordUnderCursor);
+        if (wordUnderCursor.endsWith(File.separator)) {
+          cr.modifyEnter = true;
+        } else {
+          cr.modifyEnter = false;
         }
-      });
+      } else if (line.contains("!delFromGroup") ||
+                 line.contains("!addUser")) {
+        cr.possibilities = new ArrayList<String>();
+        for (String string : completeGroupsChat(wordUnderCursor, "")) {
+          cr.possibilities.add(string);
+        }
+        for (String string : completeUsersChat(wordUnderCursor, "")) {
+          cr.possibilities.add(string);
+        }
+      } else if (line.contains("!removeGroup") ||
+                 line.contains("!listUsers")) {
+        cr.possibilities = new ArrayList<String>();
+        for (String string : completeGroupsChat(wordUnderCursor, "")) {
+          cr.possibilities.add(string);
+        }
+      } else if (!line.contains(" ")) {
+        cr.possibilities = completeCommand(wordUnderCursor);
+      } else {
+      }
+      return cr;
+    }
+  };
+
+  // private static Printable terminal;
+  private static PromptTerminal terminal;
 
   /////////////////////|////////////|//////////////////////
   /////////////////////| Utilities  |/////////////////////
@@ -352,8 +395,12 @@ public class ChatClient {
       sb.append("Use !help too see all commands available.");
     }
     // note: doesn't matter if it's empty
-    System.out.println(sb.toString());
-    System.out.flush();
+    if(GUI) {
+      terminal.print(sb.toString());
+    } else {
+      System.out.println(sb.toString());
+      System.out.flush();
+    }
   }
 
   private static String helpMenuString() {

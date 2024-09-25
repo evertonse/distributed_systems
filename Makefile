@@ -5,14 +5,30 @@ JARS := $(shell find . -name "*.jar")
 DIR := target
 DONWLOADS_DIR := ./downloads/
 TARGET := $(DIR)/*.jar
+POM := pom.xml
+
+DEFINES := -DDEBUG=true
+
+run.gui: ARGS += gui 
+run.gui: run
 
 run: $(TARGET)
-	java -ea -jar $(TARGET)
+	java $(DEFINES) -ea -jar $(TARGET) $(ARGS)
 
-$(TARGET): $(SRC) pom.xml
+release.gui: ARGS += gui 
+release.gui: release
+
+release: DEFINES = -DDEBUG=false
+release: $(TARGET)
+	java $(DEFINES) -jar $(TARGET) $(ARGS) 
+
+
+
+$(TARGET): $(SRC) $(POM)
 	@rm -f $(TARGET) # Delete the old target if it exists
-	mvn compile assembly:single
-	# mvn clean compile assembly:single
+	mvn -f $(POM) compile assembly:single
+	# mvn clean compile assembly:singl
+
 
 markdown:
 	watch --color -n 0.01 glow -p README.md
