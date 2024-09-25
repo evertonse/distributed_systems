@@ -16,6 +16,7 @@ make release
 
 ## Rode como abaixo, caso tenha apenas acesso ao `.jar`.
 
+
 ```
 java -jar <arquivo_jar>
 

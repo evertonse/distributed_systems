@@ -34,7 +34,7 @@ public class RabbitMQProxy {
   private String[] possibleHosts = {"localhost"};
 
   private final String port = "15672";
-  private static final boolean DEBUG = false;
+  private static final boolean DEBUG = System.getProperty("DEBUG", "false").equals("true");
 
   public Channel defaultChannel = null;
   public Channel fileChannel = null;
