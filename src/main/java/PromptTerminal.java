@@ -48,7 +48,7 @@ interface CompletionProvider {
 // TODO: Threadsafiness of at least displaying safely
 public class PromptTerminal implements Printable {
   public final ReentrantLock lock = new ReentrantLock();
-  private static final boolean DEBUG = System.getProperty("DEBUG", "false").equals("true");
+  protected static final boolean DEBUG = System.getProperty("DEBUG", "false").equals("true");
 
   public static final String SAVE_CURSOR = "\u001B[s";    // or "\0337"
   public static final String RESTORE_CURSOR = "\u001B[u"; // or "\0338"
