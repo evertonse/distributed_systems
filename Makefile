@@ -23,6 +23,8 @@ release: $(TARGET)
 	java $(DEFINES) -jar $(TARGET) $(ARGS) 
 
 
+test:
+	java $(DEFINES) -ea -jar $(TARGET) 18.207.238.82
 
 $(TARGET): $(SRC) $(POM)
 	@rm -f $(TARGET) # Delete the old target if it exists
@@ -88,4 +90,4 @@ cexample:
      
 
 
-.PHONY: markdown run clean reset zip random-file tcp udp
+.PHONY: markdown run clean reset zip random-file tcp udp test

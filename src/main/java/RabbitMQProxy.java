@@ -1,9 +1,13 @@
 import com.rabbitmq.client.AMQP.Exchange.DeclareOk;
+import com.rabbitmq.client.impl.ForgivingExceptionHandler;
+import com.rabbitmq.client.impl.StrictExceptionHandler;
 import com.rabbitmq.client.AlreadyClosedException;
+import com.rabbitmq.client.*;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -30,8 +34,8 @@ public class RabbitMQProxy {
 
   private static final String SPECIAL_CHARS = "!#@-/";
   private Login login;
-  private String host = "localhost";
-  private String[] possibleHosts = {"localhost"};
+  private String host;
+  private String[] possibleHosts;
 
   private final String port = "15672";
   private static final boolean DEBUG = System.getProperty("DEBUG", "false").equals("true");
@@ -43,7 +47,7 @@ public class RabbitMQProxy {
   private Connection fileConnection = null;
   private ConnectionFactory factory;
 
-  private static final int CONNECTION_TIMEOUT = 10000;
+  private static final int CONNECTION_TIMEOUT = 12800;
   private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
   private static final String FILE_DEFAULT_FOLDER = "downloads";
 
@@ -63,6 +67,8 @@ public class RabbitMQProxy {
     }
     return true;
   }
+
+  public String getHost() { return host;}
 
   private static final int MAX_RETRIES = 3;
   private static final int RETRY_DELAY = 5000; // 5 seconds
@@ -412,11 +418,24 @@ public class RabbitMQProxy {
           if (fileConnection == null) {
             fileConnection = factory.newConnection();
           }
+        } catch (IOException e) {
+          printer.print(preamble + preamble +
+                        "Switching to the next host...\n\r");
+          if(DEBUG) {
+            e.printStackTrace();
+          }
+        } catch (TimeoutException e) {
+          printer.print("Timeout connecting to RabbitMQ" + host +".\n\r");
+          printer.print(preamble + preamble +
+                        "Switching to the next host...\n\r");
+          if(DEBUG) {
+            e.printStackTrace();
+          }
         } catch (Exception e) {
           // [AMQP Connection 44.199.104.169:5672] WARN com.rabbitmq.client.impl.ForgivingException
           printer.print(preamble + preamble +
                         "Switching to the next host...\n\r");
-        }
+        } 
       } catch (Exception e) {
         printer.print(preamble + preamble + "Failed to connect to " + host +
                       ".\n\r");
@@ -482,14 +501,47 @@ public class RabbitMQProxy {
     this.host = possibleHosts.length > 0 ? possibleHosts[0] : "localhost";
 
     factory = new ConnectionFactory();
+    int AMPQ_PORT = 5672;
+    factory.setPort(AMPQ_PORT);
     factory.setUsername(username);
     factory.setPassword(password);
     factory.setVirtualHost("/");
     factory.setConnectionTimeout(CONNECTION_TIMEOUT);
     factory.setHandshakeTimeout(CONNECTION_TIMEOUT);
+
+    // Enable automatic recovery
     factory.setAutomaticRecoveryEnabled(true);
-    factory.setNetworkRecoveryInterval(1000);
+    factory.setNetworkRecoveryInterval((int)(CONNECTION_TIMEOUT*2.5));
+
     // factory.setRequestedHeartbeat(60);
+
+    // Supposedly robust topology recovery strategy
+    factory.setTopologyRecoveryEnabled(true);
+
+    factory.setExceptionHandler(new ForgivingExceptionHandler() {
+      @Override
+      public void handleConsumerException(Channel channel, Throwable exception, Consumer consumer, String consumerTag, String methodName) {
+        if (DEBUG) {
+          System.err.println("Consumer exception: " + exception.getMessage());
+        }
+      }
+      @Override
+      public void handleConnectionRecoveryException(Connection conn, Throwable exception) {
+        if (DEBUG) {
+          System.err.println("Connection recovery exception: " + exception.getMessage());
+        }
+      }
+      @Override
+      public void handleUnexpectedConnectionDriverException(Connection conn, Throwable exception) {
+        // Log the exception or take other appropriate action
+        if (DEBUG) {
+          System.out.println("\n\n\n\nUnexpected connection driver exception:" + exception.getMessage() + "\n\n\n\n");
+        }
+      }
+
+    });
+
+
   }
 
   public void shutdown() throws IOException {
@@ -730,7 +782,7 @@ public class RabbitMQProxy {
         e.printStackTrace();
       }
       printer.print(
-          "Problems in `receiveText` the stack is printed above. \n\r\n\r");
+          "IOException problems in `receiveText` the stack is printed above. \n\r\n\r");
     }
   }
 

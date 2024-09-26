@@ -497,8 +497,7 @@ public class PromptTerminal implements Printable {
       terminalWidth = size[1];
     } catch (IOException | InterruptedException e) {
       if (DEBUG) {
-        System.out.print("\rFailed to update terminal size: " + e.getMessage() +
-                         "\n\r");
+        System.out.print("\rFailed to update terminal size\n\r.");
       }
     }
   }
