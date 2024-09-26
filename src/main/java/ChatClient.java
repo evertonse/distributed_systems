@@ -85,13 +85,19 @@ public class ChatClient {
 
       rabbit.tryConnection(terminal);
       String startHelp = (
+        "Type '!help' to see available commands after "
+        + "entering your username.\n\r"
+        + "Use 'TAB' to autocomplete.\n\r"
+        + "Type your username (User: you)."
+      );
+
+      if (!GUI) {
+        startHelp =
         "Raw mode enabled.\n\r"
         + "Press 'Crtl+c' once to clear and again to quit.\n\r"
-        + "Type '!help' to see available commands after "
-        + "entering your username.\n\r"
-        + "Use 'TAB' to autocomplete."
-        + "Type your username."
-      );
+        + startHelp;
+      }
+
       if(GUI) {
         terminal.clear();
         terminal.print(startHelp);
