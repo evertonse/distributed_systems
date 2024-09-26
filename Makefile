@@ -9,18 +9,18 @@ POM := pom.xml
 
 DEFINES := -DDEBUG=true
 
-run.gui: ARGS += gui 
+run.gui: ARGS += gui
 run.gui: run
 
 run: $(TARGET)
 	java $(DEFINES) -ea -jar $(TARGET) $(ARGS)
 
-release.gui: ARGS += gui 
+release.gui: ARGS += gui
 release.gui: release
 
 release: DEFINES = -DDEBUG=false
 release: $(TARGET)
-	java $(DEFINES) -jar $(TARGET) $(ARGS) 
+	java $(DEFINES) -jar $(TARGET) $(ARGS)
 
 
 test:

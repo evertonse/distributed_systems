@@ -67,7 +67,7 @@ public class ChatClient {
 
     if (args.length > 0) {
       for (String arg : args) {
-        if (GUI == false && args.equals("gui")) {
+        if (GUI == false && arg.equals("gui")) {
           GUI = true;
         }
 
