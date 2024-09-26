@@ -93,7 +93,7 @@ public class ChatClient {
 
     terminal.clear();
     rabbit =
-        new RabbitMQProxy(RABBITMQ_USERNAME, RABBITMQ_PASSWORD, RABBITMQ_HOSTS);
+        new RabbitMQProxy(RABBITMQ_USERNAME, RABBITMQ_PASSWORD, RABBITMQ_HOSTS, RABBITMQ_HOST_ELASTIC_IP);
 
     Thread receiveTextThread =
         new Thread(() -> { rabbit.receiveText(username, terminal); });

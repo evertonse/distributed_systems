@@ -34,7 +34,7 @@ public class RabbitMQProxy {
 
   private static final String SPECIAL_CHARS = "!#@-/";
   private Login login;
-  private String host;
+  private String host, apiHost;
   private String[] possibleHosts;
 
   private final String port = "15672";
@@ -47,7 +47,7 @@ public class RabbitMQProxy {
   private Connection fileConnection = null;
   private ConnectionFactory factory;
 
-  private static final int CONNECTION_TIMEOUT = 12800;
+  private static final int CONNECTION_TIMEOUT = 15800;
   private static final String FILE_TRANSFER_PREFIX = "file_transfer@";
   private static final String FILE_DEFAULT_FOLDER = "downloads";
 
@@ -492,10 +492,11 @@ public class RabbitMQProxy {
     }
   }
 
-  public RabbitMQProxy(String username, String password, String[] possibleHosts)
+  public RabbitMQProxy(String username, String password, String[] possibleHosts, String apiHost)
       throws IOException, TimeoutException {
     this.login = new Login();
     this.login.username = username;
+    this.apiHost = apiHost;
     this.login.password = password;
     this.possibleHosts = possibleHosts;
     this.host = possibleHosts.length > 0 ? possibleHosts[0] : "localhost";
@@ -561,7 +562,7 @@ public class RabbitMQProxy {
 
     try {
       String key = "name";
-      URL url = new URI("http://" + host + ":" + port + "/api/queues/" + vhost +
+      URL url = new URI("http://" + apiHost + ":" + port + "/api/queues/" + vhost +
                         "?columns=" + key)
                     .toURL();
 
@@ -610,7 +611,7 @@ public class RabbitMQProxy {
     String key = "name";
     try {
 
-      URL url = new URI("http://" + host + ":" + port + "/api/exchanges/" +
+      URL url = new URI("http://" + apiHost + ":" + port + "/api/exchanges/" +
                         vhost + "?columns=" + key)
                     .toURL();
 
@@ -659,7 +660,7 @@ public class RabbitMQProxy {
 
     try {
       URL url =
-          new URI("http://" + host + ":" + port + "/api/exchanges/" + vhost +
+          new URI("http://" + apiHost + ":" + port + "/api/exchanges/" + vhost +
                   "/" + exchangeName       // get a specific exchanger
                   + "/bindings/source"     // list of bindings
                   + "?columns=destination" // get just the column we need
