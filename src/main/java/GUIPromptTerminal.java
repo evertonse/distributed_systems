@@ -118,7 +118,6 @@ public class GUIPromptTerminal extends PromptTerminal {
       inputPrompt.setCaretPosition(cursorSnapToInBounds(newCursor));
 
       String finalText = inputPrompt.getText();
-      System.out.printf("finalText= %s\n",finalText);
       if (finalText.endsWith("/") || finalText.endsWith(FileUtils.separator)) {
         cs.modifyEnter = true;
       }
@@ -185,10 +184,8 @@ public class GUIPromptTerminal extends PromptTerminal {
     System.out.print("EnableCompletion:");
     System.out.println(this.completionEnabled);
 
-    System.out.print("CS:");
+    System.out.print("Tab pressed. Completion Data:");
     System.out.println(cs);
-
-    System.out.println("Tab pressed. Current input: " + currentInput);
 
   }
 
@@ -287,7 +284,9 @@ public class GUIPromptTerminal extends PromptTerminal {
               }
             }
 
-            System.out.println("Key pressed: " + KeyEvent.getKeyText(e.getKeyCode()));
+            if (DEBUG) {
+              System.out.println("Key pressed: " + KeyEvent.getKeyText(e.getKeyCode()));
+            }
             if (!e.isShiftDown() && !e.isControlDown() 
                 && !(e.getKeyCode() == KeyEvent.VK_ENTER)
             ) {
